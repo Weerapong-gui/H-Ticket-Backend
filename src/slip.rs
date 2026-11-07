@@ -179,6 +179,24 @@ mod tests {
         assert_eq!(parse_slip_payload(&p), Ok("015123100512ABC".to_string()));
     }
 
+    /// ความยาว transaction ref ที่เจอในสลิปจริง (ตรวจ 2026-11-08):
+    /// กรุงไทย 17 และ 21, กสิกร 20, กรุงศรี 25 ตัวอักษร
+    #[test]
+    fn real_world_ref_lengths_accepted() {
+        for r in [
+            "A160000000000453d",
+            "016300000000000005365",
+            "C20200000000000001774",
+            "APF20000000000000000FR39",
+        ] {
+            assert_eq!(
+                parse_slip_payload(&encode_slip_payload(r)),
+                Ok(r.to_string()),
+                "{r}"
+            );
+        }
+    }
+
     #[test]
     fn bad_crc_rejected() {
         let mut p = encode_slip_payload("015123100512ABC");
