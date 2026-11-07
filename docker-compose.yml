@@ -6,8 +6,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hticket}
       POSTGRES_DB: hticket
     # เปิดเฉพาะในเครื่องตัวเอง (ใช้ตอน cargo test) คนอื่นในเครือข่ายเข้าไม่ได้
+    # บนเซิร์ฟเวอร์ที่ 5432 ถูกใช้แล้ว ตั้ง DB_BIND=127.0.0.1:15432 ใน .env
     ports:
-      - "127.0.0.1:5432:5432"
+      - "${DB_BIND:-127.0.0.1:5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -24,14 +25,28 @@ services:
       DATABASE_URL: postgres://hticket:${POSTGRES_PASSWORD:-hticket}@db:5432/hticket
       PORT: "8080"
       SLIP_DIR: /data/slips
+    # บนเซิร์ฟเวอร์ที่ 8080 ถูกใช้แล้ว ตั้ง BACKEND_BIND=127.0.0.1:18080 ใน .env
     ports:
-      - "8080:8080"
+      - "${BACKEND_BIND:-8080}:8080"
     volumes:
       - slips:/data/slips
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
+
+  # Cloudflare Tunnel: เปิดให้คนนอกเข้าผ่าน https://ticket.sumfu.store
+  # เปิดใช้ด้วย `docker compose --profile tunnel up -d` และตั้ง TUNNEL_TOKEN ใน .env
+  # ใน Cloudflare ตั้ง Public Hostname ให้ชี้ไปที่ http://backend:8080
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - backend
+    restart: unless-stopped
+    profiles: ["tunnel"]
 
 volumes:
   pgdata:
