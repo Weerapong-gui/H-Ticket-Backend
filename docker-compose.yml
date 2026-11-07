@@ -16,5 +16,21 @@ services:
       retries: 20
     restart: unless-stopped
 
+  backend:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://hticket:hticket@db:5432/hticket
+      SLIP_DIR: /data/slips
+    ports:
+      - "8080:8080"
+    volumes:
+      - slips:/data/slips
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  slips:
