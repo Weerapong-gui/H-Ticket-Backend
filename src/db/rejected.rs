@@ -27,7 +27,10 @@ pub async fn insert(
     slip_ref: Option<&str>,
 ) -> Result<Uuid, AppError> {
     let id = Uuid::new_v4();
-    insert_with_id(pool, id, reason, name, student_id, phone, slip_path, slip_ref).await?;
+    insert_with_id(
+        pool, id, reason, name, student_id, phone, slip_path, slip_ref,
+    )
+    .await?;
     Ok(id)
 }
 
@@ -59,9 +62,11 @@ pub async fn insert_with_id(
 }
 
 pub async fn list(pool: &PgPool) -> Result<Vec<RejectedAttempt>, AppError> {
-    Ok(sqlx::query_as("SELECT * FROM rejected_attempts ORDER BY created_at DESC")
-        .fetch_all(pool)
-        .await?)
+    Ok(
+        sqlx::query_as("SELECT * FROM rejected_attempts ORDER BY created_at DESC")
+            .fetch_all(pool)
+            .await?,
+    )
 }
 
 pub async fn get(pool: &PgPool, id: Uuid) -> Result<RejectedAttempt, AppError> {

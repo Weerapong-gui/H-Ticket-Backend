@@ -20,7 +20,11 @@ fn crc16_ccitt(data: &[u8]) -> u16 {
     for &b in data {
         crc ^= (b as u16) << 8;
         for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 { (crc << 1) ^ 0x1021 } else { crc << 1 };
+            crc = if crc & 0x8000 != 0 {
+                (crc << 1) ^ 0x1021
+            } else {
+                crc << 1
+            };
         }
     }
     crc
@@ -36,7 +40,8 @@ fn parse_tlv(s: &str) -> Option<Vec<(&str, &str, usize)>> {
     while i < s.len() {
         let tag = s.get(i..i + 2)?;
         let len_str = s.get(i + 2..i + 4)?;
-        if !tag.bytes().all(|b| b.is_ascii_digit()) || !len_str.bytes().all(|b| b.is_ascii_digit()) {
+        if !tag.bytes().all(|b| b.is_ascii_digit()) || !len_str.bytes().all(|b| b.is_ascii_digit())
+        {
             return None;
         }
         let len: usize = len_str.parse().ok()?;
@@ -101,7 +106,11 @@ fn scan(img: &DynamicImage) -> Result<String, SlipError> {
             }
         }
     }
-    Err(if found_any { SlipError::NotSlip } else { SlipError::NoQr })
+    Err(if found_any {
+        SlipError::NotSlip
+    } else {
+        SlipError::NoQr
+    })
 }
 
 /// อ่าน transaction ref จากรูปสลิป
@@ -173,7 +182,10 @@ mod tests {
 
     #[test]
     fn url_qr_rejected() {
-        assert_eq!(parse_slip_payload("https://example.com"), Err(SlipError::NotSlip));
+        assert_eq!(
+            parse_slip_payload("https://example.com"),
+            Err(SlipError::NotSlip)
+        );
     }
 
     #[test]

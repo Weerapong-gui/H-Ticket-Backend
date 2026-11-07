@@ -20,7 +20,10 @@ impl SlipStore {
     }
 
     pub async fn save_temp(&self, bytes: &[u8]) -> io::Result<PathBuf> {
-        let path = self.ensure("tmp").await?.join(format!("tmp-{}", Uuid::new_v4()));
+        let path = self
+            .ensure("tmp")
+            .await?
+            .join(format!("tmp-{}", Uuid::new_v4()));
         tokio::fs::write(&path, bytes).await?;
         Ok(path)
     }
@@ -53,7 +56,10 @@ impl SlipStore {
 
     pub async fn read(&self, rel: &str) -> io::Result<Vec<u8>> {
         let rel_path = Path::new(rel);
-        if rel_path.components().any(|c| !matches!(c, Component::Normal(_))) {
+        if rel_path
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+        {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "bad path"));
         }
         tokio::fs::read(self.dir.join(rel_path)).await

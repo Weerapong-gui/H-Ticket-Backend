@@ -95,16 +95,11 @@ impl AppError {
     fn message(&self) -> String {
         match self {
             AppError::InvalidInput(m) | AppError::Conflict(m) => m.clone(),
-            AppError::InvalidSlip => {
-                "ไม่พบสลิปโอนเงินที่ถูกต้องในรูปนี้ หากโอนเงินแล้วกรุณาติดต่อทีมงาน".into()
+            AppError::InvalidSlip => "ไม่พบสลิปโอนเงินที่ถูกต้องในรูปนี้ หากโอนเงินแล้วกรุณาติดต่อทีมงาน".into(),
+            AppError::DuplicateSlip => "สลิปนี้ถูกใช้ไปแล้ว หากคิดว่าเป็นความผิดพลาดกรุณาติดต่อทีมงาน".into(),
+            AppError::AlreadyHasTicket { ticket_no } => {
+                format!("รหัสนักศึกษานี้มีบัตรอยู่แล้ว (เลข {})", ticket_label(*ticket_no))
             }
-            AppError::DuplicateSlip => {
-                "สลิปนี้ถูกใช้ไปแล้ว หากคิดว่าเป็นความผิดพลาดกรุณาติดต่อทีมงาน".into()
-            }
-            AppError::AlreadyHasTicket { ticket_no } => format!(
-                "รหัสนักศึกษานี้มีบัตรอยู่แล้ว (เลข {})",
-                ticket_label(*ticket_no)
-            ),
             AppError::SalesClosed => "ขณะนี้ปิดการขายบัตรผ่านเว็บ".into(),
             AppError::SoldOut => "บัตรหมดแล้ว".into(),
             AppError::PresaleClosedForever => "ปิด pre-sale ถาวรแล้ว เปิดขายอีกไม่ได้".into(),

@@ -24,7 +24,10 @@ async fn main() -> anyhow::Result<()> {
     let addr = format!("0.0.0.0:{}", config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("listening on {addr}");
-    let app = build_app(AppState { pool, config: Arc::new(config) });
+    let app = build_app(AppState {
+        pool,
+        config: Arc::new(config),
+    });
     axum::serve(listener, app).await?;
     Ok(())
 }

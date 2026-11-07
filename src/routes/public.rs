@@ -40,7 +40,9 @@ pub async fn ticket(
 ) -> Result<Json<Value>, AppError> {
     let sid = normalize_student_id(&student_id)
         .ok_or_else(|| AppError::InvalidInput("รหัสนักศึกษาต้องเป็นตัวเลข 10 หลัก".into()))?;
-    let order = orders::find_active_by_student(&st.pool, &sid).await?.ok_or(AppError::NotFound)?;
+    let order = orders::find_active_by_student(&st.pool, &sid)
+        .await?
+        .ok_or(AppError::NotFound)?;
     Ok(Json(ticket_view(&order)))
 }
 
@@ -137,8 +139,15 @@ pub async fn create_order(
 
     let temp = store.save_temp(&bytes).await?;
     let slip_path = format!("orders/{file_name}");
-    match orders::issue_ticket(&st.pool, st.config.total_tickets, order_id, &input, &slip_ref, &slip_path)
-        .await
+    match orders::issue_ticket(
+        &st.pool,
+        st.config.total_tickets,
+        order_id,
+        &input,
+        &slip_ref,
+        &slip_path,
+    )
+    .await
     {
         Ok(order) => {
             store.finalize(&temp, &file_name).await?;

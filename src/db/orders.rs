@@ -42,25 +42,30 @@ pub async fn issue_ticket(
     slip_path: &str,
 ) -> Result<Order, AppError> {
     let mut tx = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(ISSUE_LOCK).execute(&mut *tx).await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(ISSUE_LOCK)
+        .execute(&mut *tx)
+        .await?;
 
     if !settings::read_state(&mut tx).await?.open {
         return Err(AppError::SalesClosed);
     }
 
-    let existing: Option<i16> =
-        sqlx::query_scalar("SELECT ticket_no FROM orders WHERE student_id = $1 AND status = 'active'")
-            .bind(&input.student_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let existing: Option<i16> = sqlx::query_scalar(
+        "SELECT ticket_no FROM orders WHERE student_id = $1 AND status = 'active'",
+    )
+    .bind(&input.student_id)
+    .fetch_optional(&mut *tx)
+    .await?;
     if let Some(ticket_no) = existing {
         return Err(AppError::AlreadyHasTicket { ticket_no });
     }
 
-    let slip_used: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM orders WHERE slip_ref = $1)")
-        .bind(slip_ref)
-        .fetch_one(&mut *tx)
-        .await?;
+    let slip_used: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM orders WHERE slip_ref = $1)")
+            .bind(slip_ref)
+            .fetch_one(&mut *tx)
+            .await?;
     if slip_used {
         return Err(AppError::DuplicateSlip);
     }
@@ -91,11 +96,16 @@ pub async fn issue_ticket(
     Ok(order)
 }
 
-pub async fn find_active_by_student(pool: &PgPool, student_id: &str) -> Result<Option<Order>, AppError> {
-    Ok(sqlx::query_as("SELECT * FROM orders WHERE student_id = $1 AND status = 'active'")
-        .bind(student_id)
-        .fetch_optional(pool)
-        .await?)
+pub async fn find_active_by_student(
+    pool: &PgPool,
+    student_id: &str,
+) -> Result<Option<Order>, AppError> {
+    Ok(
+        sqlx::query_as("SELECT * FROM orders WHERE student_id = $1 AND status = 'active'")
+            .bind(student_id)
+            .fetch_optional(pool)
+            .await?,
+    )
 }
 
 pub async fn get_order(pool: &PgPool, id: Uuid) -> Result<Order, AppError> {
@@ -107,7 +117,11 @@ pub async fn get_order(pool: &PgPool, id: Uuid) -> Result<Order, AppError> {
 }
 
 /// ค้นหาด้วยชื่อ/รหัส/เบอร์ (บางส่วน) หรือเลขบัตร (ถ้าเป็นตัวเลข)
-pub async fn list_orders(pool: &PgPool, q: Option<&str>, status: Option<&str>) -> Result<Vec<Order>, AppError> {
+pub async fn list_orders(
+    pool: &PgPool,
+    q: Option<&str>,
+    status: Option<&str>,
+) -> Result<Vec<Order>, AppError> {
     let q = q.map(str::trim).filter(|s| !s.is_empty());
     let pattern = q.map(|s| format!("%{s}%"));
     let ticket_no: Option<i16> = q.and_then(|s| s.parse().ok());
@@ -178,5 +192,11 @@ pub async fn stats(pool: &PgPool, total: i16) -> Result<Stats, AppError> {
     .bind(total as i32)
     .fetch_all(pool)
     .await?;
-    Ok(Stats { sold, remaining: free_numbers.len() as i64, cancelled, picked_up, free_numbers })
+    Ok(Stats {
+        sold,
+        remaining: free_numbers.len() as i64,
+        cancelled,
+        picked_up,
+        free_numbers,
+    })
 }

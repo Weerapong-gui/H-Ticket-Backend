@@ -21,7 +21,11 @@ async fn post_order_issues_ticket(pool: PgPool) {
     let cfg = test_config();
     let dir = cfg.slip_dir.clone();
     let app = app(pool, cfg);
-    let (status, body) = send(&app, multipart_order("สมชาย", SID, "0812345678", &slip_png("R1"))).await;
+    let (status, body) = send(
+        &app,
+        multipart_order("สมชาย", SID, "0812345678", &slip_png("R1")),
+    )
+    .await;
     assert_eq!(status, 201, "{body}");
     assert_eq!(body["ticket_label"], "001");
     assert_eq!(body["ticket_no"], 1);
@@ -34,7 +38,11 @@ async fn post_order_issues_ticket(pool: PgPool) {
 async fn lookup_ticket_with_spaces(pool: PgPool) {
     open_sales(&pool).await;
     let app = app(pool, test_config());
-    send(&app, multipart_order("สมชาย", &format!(" {SID} "), "0812345678", &slip_png("R1"))).await;
+    send(
+        &app,
+        multipart_order("สมชาย", &format!(" {SID} "), "0812345678", &slip_png("R1")),
+    )
+    .await;
     let (status, body) = send(&app, get(&format!("/api/tickets/%20{SID}%20"))).await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["ticket_label"], "001");
@@ -54,8 +62,16 @@ async fn lookup_unknown_404(pool: PgPool) {
 async fn non_slip_image_rejected_and_logged(pool: PgPool) {
     open_sales(&pool).await;
     let app = app(pool.clone(), test_config());
-    let (status, body) =
-        send(&app, multipart_order("สมชาย", SID, "0812345678", &png_of_qr("https://example.com"))).await;
+    let (status, body) = send(
+        &app,
+        multipart_order(
+            "สมชาย",
+            SID,
+            "0812345678",
+            &png_of_qr("https://example.com"),
+        ),
+    )
+    .await;
     assert_eq!(status, 422);
     assert_eq!(body["code"], "invalid_slip");
     assert_eq!(body["contact"], "LINE @hticket");
@@ -70,8 +86,16 @@ async fn non_slip_image_rejected_and_logged(pool: PgPool) {
 async fn duplicate_slip_409_and_logged(pool: PgPool) {
     open_sales(&pool).await;
     let app = app(pool.clone(), test_config());
-    send(&app, multipart_order("A", SID, "0812345678", &slip_png("R1"))).await;
-    let (status, body) = send(&app, multipart_order("B", "6800000002", "0812345678", &slip_png("R1"))).await;
+    send(
+        &app,
+        multipart_order("A", SID, "0812345678", &slip_png("R1")),
+    )
+    .await;
+    let (status, body) = send(
+        &app,
+        multipart_order("B", "6800000002", "0812345678", &slip_png("R1")),
+    )
+    .await;
     assert_eq!(status, 409);
     assert_eq!(body["code"], "duplicate_slip");
     assert_eq!(body["contact"], "LINE @hticket");
@@ -84,18 +108,33 @@ async fn duplicate_slip_409_and_logged(pool: PgPool) {
 async fn already_has_ticket_returns_existing_number(pool: PgPool) {
     open_sales(&pool).await;
     let app = app(pool.clone(), test_config());
-    send(&app, multipart_order("A", SID, "0812345678", &slip_png("R1"))).await;
-    let (status, body) = send(&app, multipart_order("A", SID, "0812345678", &slip_png("R2"))).await;
+    send(
+        &app,
+        multipart_order("A", SID, "0812345678", &slip_png("R1")),
+    )
+    .await;
+    let (status, body) = send(
+        &app,
+        multipart_order("A", SID, "0812345678", &slip_png("R2")),
+    )
+    .await;
     assert_eq!(status, 409);
     assert_eq!(body["code"], "already_has_ticket");
     assert_eq!(body["ticket_label"], "001");
-    assert_eq!(rejected::list(&pool).await.unwrap()[0].reason, "already_has_ticket");
+    assert_eq!(
+        rejected::list(&pool).await.unwrap()[0].reason,
+        "already_has_ticket"
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]
 async fn sales_closed_403_not_logged(pool: PgPool) {
     let app = app(pool.clone(), test_config());
-    let (status, body) = send(&app, multipart_order("A", SID, "0812345678", &slip_png("R1"))).await;
+    let (status, body) = send(
+        &app,
+        multipart_order("A", SID, "0812345678", &slip_png("R1")),
+    )
+    .await;
     assert_eq!(status, 403);
     assert_eq!(body["code"], "sales_closed");
     assert!(rejected::list(&pool).await.unwrap().is_empty());
@@ -105,10 +144,18 @@ async fn sales_closed_403_not_logged(pool: PgPool) {
 async fn invalid_input_400(pool: PgPool) {
     open_sales(&pool).await;
     let app = app(pool, test_config());
-    let (status, body) = send(&app, multipart_order("A", "123", "0812345678", &slip_png("R1"))).await;
+    let (status, body) = send(
+        &app,
+        multipart_order("A", "123", "0812345678", &slip_png("R1")),
+    )
+    .await;
     assert_eq!(status, 400);
     assert_eq!(body["code"], "invalid_input");
-    let (status, _) = send(&app, multipart_order("A", SID, "0812345678", b"%PDF-1.7 hello")).await;
+    let (status, _) = send(
+        &app,
+        multipart_order("A", SID, "0812345678", b"%PDF-1.7 hello"),
+    )
+    .await;
     assert_eq!(status, 400);
 }
 
@@ -127,7 +174,11 @@ async fn oversized_upload_rejected(pool: PgPool) {
 async fn sales_endpoint_counts(pool: PgPool) {
     open_sales(&pool).await;
     let app = app(pool, test_config());
-    send(&app, multipart_order("A", SID, "0812345678", &slip_png("R1"))).await;
+    send(
+        &app,
+        multipart_order("A", SID, "0812345678", &slip_png("R1")),
+    )
+    .await;
     let (status, body) = send(&app, get("/api/sales")).await;
     assert_eq!(status, 200);
     assert_eq!(

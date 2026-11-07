@@ -23,7 +23,11 @@ pub fn normalize_student_id(s: &str) -> Option<String> {
     is_digits(s, 10).then(|| s.to_string())
 }
 
-pub fn validate_order(name: &str, student_id: &str, phone: &str) -> Result<NewOrderInput, AppError> {
+pub fn validate_order(
+    name: &str,
+    student_id: &str,
+    phone: &str,
+) -> Result<NewOrderInput, AppError> {
     let name = name.trim();
     if name.is_empty() {
         return Err(bad("กรุณากรอกชื่อ"));
@@ -37,7 +41,11 @@ pub fn validate_order(name: &str, student_id: &str, phone: &str) -> Result<NewOr
     if !is_digits(phone, 10) || !phone.starts_with('0') {
         return Err(bad("เบอร์โทรต้องเป็นตัวเลข 10 หลัก ขึ้นต้นด้วย 0"));
     }
-    Ok(NewOrderInput { name: name.to_string(), student_id, phone: phone.to_string() })
+    Ok(NewOrderInput {
+        name: name.to_string(),
+        student_id,
+        phone: phone.to_string(),
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,18 +131,27 @@ mod tests {
 
     #[test]
     fn normalize_student_id_trims() {
-        assert_eq!(normalize_student_id(" 6831501178\n"), Some("6831501178".into()));
+        assert_eq!(
+            normalize_student_id(" 6831501178\n"),
+            Some("6831501178".into())
+        );
         assert_eq!(normalize_student_id("abc"), None);
     }
 
     #[test]
     fn detects_image_types() {
-        assert_eq!(detect_image(&[0xFF, 0xD8, 0xFF, 0xE0, 0]).unwrap(), ImageKind::Jpeg);
+        assert_eq!(
+            detect_image(&[0xFF, 0xD8, 0xFF, 0xE0, 0]).unwrap(),
+            ImageKind::Jpeg
+        );
         assert_eq!(
             detect_image(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0]).unwrap(),
             ImageKind::Png
         );
-        assert_eq!(detect_image(b"RIFF\0\0\0\0WEBPVP8 ").unwrap(), ImageKind::Webp);
+        assert_eq!(
+            detect_image(b"RIFF\0\0\0\0WEBPVP8 ").unwrap(),
+            ImageKind::Webp
+        );
         assert_eq!(ImageKind::Jpeg.ext(), "jpg");
         assert_eq!(ImageKind::Png.mime(), "image/png");
     }

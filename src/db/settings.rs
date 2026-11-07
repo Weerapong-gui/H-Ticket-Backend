@@ -15,7 +15,10 @@ pub(crate) async fn read_state(conn: &mut PgConnection) -> Result<SalesState, Ap
         .await?;
     let flag = |k: &str| rows.iter().any(|(key, v)| key == k && v == "true");
     let closed_forever = flag("presale_closed_forever");
-    Ok(SalesState { open: flag("sales_open") && !closed_forever, closed_forever })
+    Ok(SalesState {
+        open: flag("sales_open") && !closed_forever,
+        closed_forever,
+    })
 }
 
 async fn set(conn: &mut PgConnection, key: &str, value: bool) -> Result<(), AppError> {
@@ -37,7 +40,10 @@ pub async fn get_sales_state(pool: &PgPool) -> Result<SalesState, AppError> {
 
 pub async fn set_sales_open(pool: &PgPool, open: bool) -> Result<SalesState, AppError> {
     let mut tx = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(ISSUE_LOCK).execute(&mut *tx).await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(ISSUE_LOCK)
+        .execute(&mut *tx)
+        .await?;
     let state = read_state(&mut tx).await?;
     if open && state.closed_forever {
         return Err(AppError::PresaleClosedForever);
@@ -50,7 +56,10 @@ pub async fn set_sales_open(pool: &PgPool, open: bool) -> Result<SalesState, App
 
 pub async fn close_forever(pool: &PgPool) -> Result<SalesState, AppError> {
     let mut tx = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(ISSUE_LOCK).execute(&mut *tx).await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(ISSUE_LOCK)
+        .execute(&mut *tx)
+        .await?;
     set(&mut tx, "sales_open", false).await?;
     set(&mut tx, "presale_closed_forever", true).await?;
     let state = read_state(&mut tx).await?;
