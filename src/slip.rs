@@ -6,6 +6,11 @@
 
 use image::{DynamicImage, GenericImageView};
 
+/// เพดานความกว้าง/สูงของรูป กันรูปที่บีบอัดเล็กแต่คลายแล้วกินแรมมหาศาล
+pub const MAX_IMAGE_DIM: u32 = 10_000;
+/// เพดานหน่วยความจำต่อการถอดรหัสรูปหนึ่งรูป
+const MAX_DECODE_ALLOC: u64 = 300 * 1024 * 1024;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum SlipError {
     /// ไม่ใช่รูป หรือหา QR ในรูปไม่เจอ
@@ -115,7 +120,15 @@ fn scan(img: &DynamicImage) -> Result<String, SlipError> {
 
 /// อ่าน transaction ref จากรูปสลิป
 pub fn read_slip_ref(image_bytes: &[u8]) -> Result<String, SlipError> {
-    let img = image::load_from_memory(image_bytes).map_err(|_| SlipError::NoQr)?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_DIM);
+    limits.max_image_height = Some(MAX_IMAGE_DIM);
+    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(image_bytes))
+        .with_guessed_format()
+        .map_err(|_| SlipError::NoQr)?;
+    reader.limits(limits);
+    let img = reader.decode().map_err(|_| SlipError::NoQr)?;
     match scan(&img) {
         Ok(r) => Ok(r),
         Err(first_err) => {
@@ -205,6 +218,15 @@ mod tests {
     fn image_with_non_slip_qr_is_not_slip() {
         let img = qr_image("https://example.com");
         assert_eq!(read_slip_ref(&png_of(&img)), Err(SlipError::NotSlip));
+    }
+
+    #[test]
+    fn oversized_dimensions_rejected_before_decode() {
+        // QR ถูกต้อง แต่รูปกว้างเกินเพดาน → ต้องไม่ถอดรหัส (กัน image bomb)
+        let qr = qr_image(&encode_slip_payload("REF-WIDE"));
+        let mut canvas = GrayImage::from_pixel(MAX_IMAGE_DIM + 1, 300, Luma([255]));
+        image::imageops::overlay(&mut canvas, &qr, 10, 10);
+        assert_eq!(read_slip_ref(&png_of(&canvas)), Err(SlipError::NoQr));
     }
 
     #[test]

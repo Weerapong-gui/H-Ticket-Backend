@@ -32,6 +32,9 @@ pub fn validate_order(
     if name.is_empty() {
         return Err(bad("กรุณากรอกชื่อ"));
     }
+    if name.chars().any(char::is_control) {
+        return Err(bad("ชื่อมีอักขระที่ไม่อนุญาต"));
+    }
     if name.chars().count() > 100 {
         return Err(bad("ชื่อยาวเกิน 100 ตัวอักษร"));
     }
@@ -127,6 +130,12 @@ mod tests {
     fn errors_are_invalid_input() {
         let e = validate_order("", "1", "1").unwrap_err();
         assert_eq!(e.code(), "invalid_input");
+    }
+
+    #[test]
+    fn rejects_control_chars_in_name() {
+        assert!(validate_order("A\0B", "6831501178", "0812345678").is_err());
+        assert!(validate_order("A\nB", "6831501178", "0812345678").is_err());
     }
 
     #[test]

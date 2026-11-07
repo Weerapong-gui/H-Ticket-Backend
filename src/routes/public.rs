@@ -120,6 +120,12 @@ pub async fn create_order(
     let order_id = Uuid::new_v4();
     let file_name = format!("{order_id}.{}", kind.ext());
 
+    // ถอดรหัสรูปพร้อมกันได้ไม่เกิน 2 รูป เพื่อจำกัดหน่วยความจำ
+    static DECODE_PERMITS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let permit = DECODE_PERMITS
+        .acquire()
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
     let bytes = form.slip;
     let (bytes, read) = tokio::task::spawn_blocking(move || {
         let r = slip::read_slip_ref(&bytes);
@@ -127,6 +133,7 @@ pub async fn create_order(
     })
     .await
     .map_err(|e| AppError::Internal(e.into()))?;
+    drop(permit);
 
     let slip_ref = match read {
         Ok(r) => r,

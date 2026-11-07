@@ -122,7 +122,9 @@ pub async fn list_orders(
     q: Option<&str>,
     status: Option<&str>,
 ) -> Result<Vec<Order>, AppError> {
-    let q = q.map(str::trim).filter(|s| !s.is_empty());
+    // Postgres ไม่รับ NUL ในข้อความ ตัดทิ้งก่อนค้น
+    let cleaned = q.map(|s| s.replace('\0', ""));
+    let q = cleaned.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let pattern = q.map(|s| format!("%{s}%"));
     let ticket_no: Option<i16> = q.and_then(|s| s.parse().ok());
     Ok(sqlx::query_as(

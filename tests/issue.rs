@@ -236,3 +236,8 @@ async fn rejected_roundtrip(pool: PgPool) {
         "invalid_slip"
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn search_with_nul_does_not_error(pool: PgPool) {
+    assert!(orders::list_orders(&pool, Some("a\0b"), None).await.is_ok());
+}

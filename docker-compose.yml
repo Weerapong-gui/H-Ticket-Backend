@@ -3,10 +3,11 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: hticket
-      POSTGRES_PASSWORD: hticket
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hticket}
       POSTGRES_DB: hticket
+    # เปิดเฉพาะในเครื่องตัวเอง (ใช้ตอน cargo test) คนอื่นในเครือข่ายเข้าไม่ได้
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +21,8 @@ services:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: postgres://hticket:hticket@db:5432/hticket
+      DATABASE_URL: postgres://hticket:${POSTGRES_PASSWORD:-hticket}@db:5432/hticket
+      PORT: "8080"
       SLIP_DIR: /data/slips
     ports:
       - "8080:8080"

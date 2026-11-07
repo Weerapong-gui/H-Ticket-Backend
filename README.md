@@ -72,5 +72,5 @@ cp .env.example .env   # ตั้งรหัสจริง + CORS_ORIGIN เ�
 docker compose up -d --build
 ```
 
-พอร์ต 5432 ของ Postgres ถูกเปิดไว้ใช้ตอน dev — บนเซิร์ฟเวอร์ควรลบ `ports` ของ service `db` ออก
+Postgres เปิดพอร์ตเฉพาะ `127.0.0.1` (เครื่องอื่นเข้าไม่ได้) — บนเซิร์ฟเวอร์ตั้ง `POSTGRES_PASSWORD` ใน `.env` เป็นค่ายาว ๆ **ก่อน** `docker compose up` ครั้งแรก
 การเปิดให้คนนอก Tailscale เข้าได้ (Cloudflare Tunnel / Tailscale Funnel) ยังไม่ได้ตั้งค่า
