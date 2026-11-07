@@ -1,0 +1,3 @@
+# ใช้ตอน dev/test: Postgres จาก `docker compose up -d db`
+[env]
+DATABASE_URL = { value = "postgres://hticket:hticket@localhost:5432/hticket", force = false }
