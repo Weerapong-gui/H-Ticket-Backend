@@ -57,7 +57,7 @@ pub fn parse_slip_payload(payload: &str) -> Result<String, SlipError> {
         return Err(SlipError::NotSlip);
     }
     let expected = u16::from_str_radix(crc_value, 16).map_err(|_| SlipError::NotSlip)?;
-    if crc16_ccitt(payload[..crc_offset].as_bytes()) != expected {
+    if crc16_ccitt(&payload.as_bytes()[..crc_offset]) != expected {
         return Err(SlipError::NotSlip);
     }
 
