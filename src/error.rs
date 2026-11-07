@@ -39,6 +39,8 @@ pub enum AppError {
     Conflict(String),
     #[error("unauthorized")]
     Unauthorized,
+    #[error("too many attempts")]
+    TooManyAttempts { retry_after_secs: u64 },
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -72,6 +74,7 @@ impl AppError {
             AppError::NotFound => "not_found",
             AppError::Conflict(_) => "conflict",
             AppError::Unauthorized => "unauthorized",
+            AppError::TooManyAttempts { .. } => "too_many_attempts",
             AppError::Internal(_) => "internal",
         }
     }
@@ -88,6 +91,7 @@ impl AppError {
             AppError::SalesClosed => StatusCode::FORBIDDEN,
             AppError::NotFound => StatusCode::NOT_FOUND,
             AppError::Unauthorized => StatusCode::UNAUTHORIZED,
+            AppError::TooManyAttempts { .. } => StatusCode::TOO_MANY_REQUESTS,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -105,6 +109,9 @@ impl AppError {
             AppError::PresaleClosedForever => "ปิด pre-sale ถาวรแล้ว เปิดขายอีกไม่ได้".into(),
             AppError::NotFound => "ไม่พบข้อมูล".into(),
             AppError::Unauthorized => "กรุณาเข้าสู่ระบบแอดมิน".into(),
+            AppError::TooManyAttempts { retry_after_secs } => {
+                format!("ใส่รหัสผิดหลายครั้ง กรุณารอ {retry_after_secs} วินาทีแล้วลองใหม่")
+            }
             AppError::Internal(_) => "เกิดข้อผิดพลาดในระบบ กรุณาลองใหม่อีกครั้ง".into(),
         }
     }
@@ -119,6 +126,9 @@ impl IntoResponse for AppError {
         match &self {
             AppError::InvalidSlip | AppError::DuplicateSlip => {
                 body["contact"] = json!(contact_info());
+            }
+            AppError::TooManyAttempts { retry_after_secs } => {
+                body["retry_after_secs"] = json!(retry_after_secs);
             }
             AppError::AlreadyHasTicket { ticket_no } => {
                 body["ticket_no"] = json!(ticket_no);

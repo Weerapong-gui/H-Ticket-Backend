@@ -27,6 +27,17 @@ use tower_http::{
 pub struct AppState {
     pub pool: PgPool,
     pub config: Arc<Config>,
+    pub login_limiter: Arc<auth::LoginLimiter>,
+}
+
+impl AppState {
+    pub fn new(pool: PgPool, config: Config) -> Self {
+        AppState {
+            pool,
+            config: Arc::new(config),
+            login_limiter: Arc::default(),
+        }
+    }
 }
 
 async fn healthz() -> Json<Value> {

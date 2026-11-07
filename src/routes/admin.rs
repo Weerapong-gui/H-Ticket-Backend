@@ -58,9 +58,12 @@ pub async fn login(
     b: Result<Json<LoginBody>, JsonRejection>,
 ) -> Result<Json<Value>, AppError> {
     let b = body(b)?;
+    st.login_limiter.check()?;
     if !password_matches(&b.password, &st.config.admin_password) {
+        st.login_limiter.record_failure();
         return Err(AppError::Unauthorized);
     }
+    st.login_limiter.reset();
     Ok(Json(json!({ "token": issue_token(&st.config.jwt_secret) })))
 }
 

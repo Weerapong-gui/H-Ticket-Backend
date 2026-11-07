@@ -355,3 +355,76 @@ async fn rejected_list_and_slip(pool: PgPool) {
     let bytes = res.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(bytes.to_vec(), bad);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn login_locked_after_5_failures(pool: PgPool) {
+    let app = app(pool, test_config());
+    for _ in 0..5 {
+        let (status, _) = send(
+            &app,
+            json_req(
+                "POST",
+                "/api/admin/login",
+                None,
+                json!({"password": "nope"}),
+            ),
+        )
+        .await;
+        assert_eq!(status, 401);
+    }
+    let (status, body) = send(
+        &app,
+        json_req(
+            "POST",
+            "/api/admin/login",
+            None,
+            json!({"password": "nope"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, 429);
+    assert_eq!(body["code"], "too_many_attempts");
+    // แม้รหัสถูกก็ต้องรอ ไม่งั้นการล็อกไม่มีความหมาย
+    let (status, _) = send(
+        &app,
+        json_req(
+            "POST",
+            "/api/admin/login",
+            None,
+            json!({"password": "admin-pass"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, 429);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn successful_login_resets_failures(pool: PgPool) {
+    let app = app(pool, test_config());
+    for _ in 0..4 {
+        send(
+            &app,
+            json_req(
+                "POST",
+                "/api/admin/login",
+                None,
+                json!({"password": "nope"}),
+            ),
+        )
+        .await;
+    }
+    login(&app).await;
+    for _ in 0..4 {
+        let (status, _) = send(
+            &app,
+            json_req(
+                "POST",
+                "/api/admin/login",
+                None,
+                json!({"password": "nope"}),
+            ),
+        )
+        .await;
+        assert_eq!(status, 401);
+    }
+}

@@ -7,7 +7,6 @@ use axum::{
 use h_ticket_backend::{AppState, build_app, config::Config};
 use http_body_util::BodyExt;
 use sqlx::PgPool;
-use std::sync::Arc;
 use tower::ServiceExt;
 
 pub fn test_config() -> Config {
@@ -26,10 +25,7 @@ pub fn test_config() -> Config {
 
 pub fn app(pool: PgPool, config: Config) -> Router {
     h_ticket_backend::error::set_contact_info(config.contact_info.clone());
-    build_app(AppState {
-        pool,
-        config: Arc::new(config),
-    })
+    build_app(AppState::new(pool, config))
 }
 
 pub async fn send(app: &Router, req: Request<Body>) -> (StatusCode, serde_json::Value) {

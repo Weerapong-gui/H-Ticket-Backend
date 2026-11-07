@@ -10,7 +10,7 @@ Backend ระบบขายบัตร pre-sale บ้านผีสิง (
 ต้องมี Docker (บน Mac แนะนำ OrbStack)
 
 ```bash
-cp .env.example .env        # แล้วแก้ ADMIN_PASSWORD, JWT_SECRET, CONTACT_INFO
+cp .env.example .env        # แล้วแก้ ADMIN_PASSWORD (≥12 ตัว), JWT_SECRET (≥32 ตัว), CONTACT_INFO
 docker compose up -d --build
 curl localhost:8080/healthz # {"status":"ok"}
 ```
@@ -26,7 +26,10 @@ docker compose up -d db
 cargo test
 ```
 
-`DATABASE_URL` สำหรับ dev ตั้งไว้ใน `.cargo/config.toml` แล้ว
+`DATABASE_URL` สำหรับ dev ตั้งไว้ใน `.cargo/config.toml` (รหัส `hticket`) ถ้าตั้ง `POSTGRES_PASSWORD` ใน `.env` เป็นค่าอื่น ให้ export เองก่อนรันเทสต์:
+```bash
+export DATABASE_URL="postgres://hticket:<POSTGRES_PASSWORD>@localhost:5432/hticket"
+```
 
 สร้างรูปสลิปปลอมไว้ลองยิง API ด้วยมือ:
 ```bash
@@ -53,7 +56,7 @@ error ของ `POST /api/orders`: `invalid_input` 400, `sales_closed` 403, `in
 ### แอดมิน (header `Authorization: Bearer <token>`)
 | Method | Path | |
 |---|---|---|
-| POST | `/api/admin/login` | `{password}` → `{token}` (อายุ 12 ชม.) |
+| POST | `/api/admin/login` | `{password}` → `{token}` (อายุ 12 ชม.) — ผิดครบ 5 ครั้งใน 1 นาที → 429 `too_many_attempts` ต้องรอ |
 | GET | `/api/admin/stats` | ขายแล้ว/เหลือ/ยกเลิก/รับบัตรแล้ว + `free_numbers` |
 | GET | `/api/admin/orders?q=&status=` | รายชื่อ ค้นด้วยชื่อ/รหัส/เบอร์/เลขบัตร, `status=active\|cancelled` |
 | GET | `/api/admin/orders/{id}/slip` | รูปสลิป |
