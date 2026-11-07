@@ -1,6 +1,7 @@
 pub mod config;
 pub mod error;
 pub mod slip;
+pub mod validate;
 
 use axum::{Json, Router, http::HeaderValue, routing::get};
 use config::Config;
