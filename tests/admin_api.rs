@@ -96,6 +96,7 @@ async fn admin_routes_require_token(pool: PgPool) {
         ("POST", format!("/api/admin/orders/{id}/pickup")),
         ("PUT", "/api/admin/sales".to_string()),
         ("POST", "/api/admin/sales/close-forever".to_string()),
+        ("PUT", "/api/admin/total".to_string()),
         ("GET", "/api/admin/rejected".to_string()),
         ("GET", format!("/api/admin/rejected/{id}/slip")),
     ];
@@ -144,7 +145,8 @@ async fn cancel_then_lookup_404_and_number_free(pool: PgPool) {
     let (status, _) = send(&app, get(&format!("/api/tickets/{SID}"))).await;
     assert_eq!(status, 404);
     let (_, stats) = send(&app, authed_get("/api/admin/stats", &token)).await;
-    assert_eq!(stats["free_numbers"][0], 1);
+    assert_eq!(stats["remaining"], 600);
+    assert!(stats.get("free_numbers").is_none());
     assert_eq!(stats["cancelled"], 1);
 }
 
@@ -262,7 +264,7 @@ async fn slip_download_matches_upload(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn search_by_ticket_no_and_name(pool: PgPool) {
+async fn search_by_student_id(pool: PgPool) {
     open_sales(&pool).await;
     let app = app(pool, test_config());
     buy(&app, SID, "R1").await;
@@ -271,15 +273,11 @@ async fn search_by_ticket_no_and_name(pool: PgPool) {
     let (_, all) = send(&app, authed_get("/api/admin/orders", &token)).await;
     assert_eq!(all.as_array().unwrap().len(), 2);
     assert_eq!(all[0]["phone"], "0812345678");
-    assert_eq!(all[0]["ticket_label"], "001");
-    let (_, by_no) = send(&app, authed_get("/api/admin/orders?q=2", &token)).await;
-    assert!(
-        by_no
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|o| o["ticket_no"] == 2)
-    );
+    assert!(all[0].get("ticket_no").is_none());
+    assert_eq!(all[0]["student_id"], SID);
+    let (_, by_sid) = send(&app, authed_get("/api/admin/orders?q=6800000002", &token)).await;
+    assert_eq!(by_sid.as_array().unwrap().len(), 1);
+    assert_eq!(by_sid[0]["student_id"], "6800000002");
     let (_, active) = send(
         &app,
         authed_get("/api/admin/orders?status=cancelled", &token),
@@ -427,4 +425,93 @@ async fn successful_login_resets_failures(pool: PgPool) {
         .await;
         assert_eq!(status, 401);
     }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn admin_sets_total_live(pool: PgPool) {
+    open_sales(&pool).await;
+    let app = app(pool, test_config());
+    buy(&app, SID, "R1").await;
+    buy(&app, "6800000002", "R2").await;
+    let token = login(&app).await;
+    let put = |total: Value| {
+        json_req(
+            "PUT",
+            "/api/admin/total",
+            Some(&token),
+            json!({ "total": total }),
+        )
+    };
+
+    // ตั้งน้อยกว่าที่ขายไปแล้วไม่ได้ / นอกช่วง 1-999 ไม่ได้
+    let (status, body) = send(&app, put(json!(1))).await;
+    assert_eq!(
+        (status.as_u16(), body["code"].as_str()),
+        (409, Some("conflict"))
+    );
+    for bad in [json!(0), json!(1000), json!("x")] {
+        let (status, _) = send(&app, put(bad.clone())).await;
+        assert!(status == 400 || status == 422, "{bad} -> {status}");
+    }
+
+    // ตั้งเท่ากับที่ขายแล้วได้ มีผลทันทีทั้งสถิติ หน้าเว็บ และการจอง
+    let (status, stats) = send(&app, put(json!(2))).await;
+    assert_eq!(status, 200, "{stats}");
+    assert_eq!(
+        (stats["total"].clone(), stats["remaining"].clone()),
+        (json!(2), json!(0))
+    );
+    let (_, sales) = send(&app, get("/api/sales")).await;
+    assert_eq!(
+        (sales["total"].clone(), sales["remaining"].clone()),
+        (json!(2), json!(0))
+    );
+    let (status, body) = send(
+        &app,
+        multipart_order("C", "6800000003", "0812345678", &slip_png("R3")),
+    )
+    .await;
+    assert_eq!(
+        (status.as_u16(), body["code"].as_str()),
+        (409, Some("sold_out"))
+    );
+
+    let (_, stats) = send(&app, put(json!(700))).await;
+    assert_eq!(stats["remaining"], 698);
+    buy(&app, "6800000003", "R4").await;
+}
+
+fn ghost_post() -> Request<Body> {
+    Request::post("/api/ghost-shots")
+        .body(Body::empty())
+        .unwrap()
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn ghost_shot_counter_public_and_in_stats(pool: PgPool) {
+    let app = app(pool, test_config());
+    for _ in 0..2 {
+        let res = app.clone().oneshot(ghost_post()).await.unwrap();
+        assert_eq!(res.status(), 204);
+    }
+    let token = login(&app).await;
+    let (_, stats) = send(&app, authed_get("/api/admin/stats", &token)).await;
+    assert_eq!(stats["ghost_shots"], 2);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn ghost_shot_counter_rate_limited(pool: PgPool) {
+    let app = app(pool, test_config());
+    let mut limited = 0;
+    for _ in 0..40 {
+        let (status, body) = send(&app, ghost_post()).await;
+        if status == 429 {
+            assert_eq!(body["code"], "too_many_attempts");
+            limited += 1;
+        }
+    }
+    assert!(limited > 0);
+    let token = login(&app).await;
+    let (_, stats) = send(&app, authed_get("/api/admin/stats", &token)).await;
+    assert!(stats["ghost_shots"].as_i64().unwrap() <= 30, "{stats}");
 }

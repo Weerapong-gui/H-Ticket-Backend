@@ -27,8 +27,8 @@ async fn post_order_issues_ticket(pool: PgPool) {
     )
     .await;
     assert_eq!(status, 201, "{body}");
-    assert_eq!(body["ticket_label"], "001");
-    assert_eq!(body["ticket_no"], 1);
+    assert_eq!(body["student_id"], SID);
+    assert!(body.get("ticket_no").is_none() && body.get("ticket_label").is_none());
     assert!(body.get("phone").is_none());
     let files: Vec<_> = std::fs::read_dir(dir.join("orders")).unwrap().collect();
     assert_eq!(files.len(), 1);
@@ -45,7 +45,7 @@ async fn lookup_ticket_with_spaces(pool: PgPool) {
     .await;
     let (status, body) = send(&app, get(&format!("/api/tickets/%20{SID}%20"))).await;
     assert_eq!(status, 200, "{body}");
-    assert_eq!(body["ticket_label"], "001");
+    assert_eq!(body["name"], "สมชาย");
     assert_eq!(body["picked_up"], false);
     assert!(body.get("phone").is_none());
 }
@@ -120,7 +120,7 @@ async fn already_has_ticket_returns_existing_number(pool: PgPool) {
     .await;
     assert_eq!(status, 409);
     assert_eq!(body["code"], "already_has_ticket");
-    assert_eq!(body["ticket_label"], "001");
+    assert_eq!(body["student_id"], SID);
     assert_eq!(
         rejected::list(&pool).await.unwrap()[0].reason,
         "already_has_ticket"
@@ -192,22 +192,33 @@ async fn group_of_two_shares_one_slip(pool: PgPool) {
     open_sales(&pool).await;
     let app = app(pool.clone(), test_config());
     let people = [("A", "6800000001"), ("B", "6800000002")];
-    let (status, body) = send(&app, multipart_group(&people, "0812345678", &slip_png("G1"))).await;
+    let (status, body) = send(
+        &app,
+        multipart_group(&people, "0812345678", &slip_png("G1")),
+    )
+    .await;
     assert_eq!(status, 201, "{body}");
-    assert_eq!(body["ticket_label"], "001");
+    assert_eq!(body["student_id"], "6800000001");
     assert_eq!(body["group_size"], 2);
-    let labels: Vec<_> = body["tickets"]
+    let sids: Vec<_> = body["tickets"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|t| t["ticket_label"].as_str().unwrap().to_string())
+        .map(|t| t["student_id"].as_str().unwrap().to_string())
         .collect();
-    assert_eq!(labels, ["001", "002"]);
+    assert_eq!(sids, ["6800000001", "6800000002"]);
 
     let (status, body) = send(&app, get("/api/tickets/6800000002")).await;
     assert_eq!(status, 200, "{body}");
-    assert_eq!(body["ticket_label"], "002");
-    assert_eq!(body["group"].as_array().unwrap().len(), 2);
+    assert_eq!(body["name"], "B");
+    let names: Vec<_> = body["group"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(names, ["A", "B"]);
+    assert_eq!(body["group"][0]["picked_up"], false);
     assert!(body["group"][0].get("student_id").is_none());
 
     // สลิปเดิมใช้กับกลุ่มอื่นไม่ได้
@@ -224,9 +235,17 @@ async fn group_of_two_shares_one_slip(pool: PgPool) {
 async fn group_rejected_whole_if_one_has_ticket(pool: PgPool) {
     open_sales(&pool).await;
     let app = app(pool.clone(), test_config());
-    send(&app, multipart_order("B", "6800000002", "0812345678", &slip_png("R1"))).await;
+    send(
+        &app,
+        multipart_order("B", "6800000002", "0812345678", &slip_png("R1")),
+    )
+    .await;
     let people = [("A", "6800000001"), ("B", "6800000002")];
-    let (status, body) = send(&app, multipart_group(&people, "0812345678", &slip_png("G1"))).await;
+    let (status, body) = send(
+        &app,
+        multipart_group(&people, "0812345678", &slip_png("G1")),
+    )
+    .await;
     assert_eq!(status, 409);
     assert_eq!(body["code"], "already_has_ticket");
     assert_eq!(body["student_id"], "6800000002");
@@ -240,8 +259,16 @@ async fn group_rejected_whole_if_one_has_ticket(pool: PgPool) {
 async fn group_size_must_be_package(pool: PgPool) {
     open_sales(&pool).await;
     let app = app(pool, test_config());
-    let people = [("A", "6800000001"), ("B", "6800000002"), ("C", "6800000003")];
-    let (status, body) = send(&app, multipart_group(&people, "0812345678", &slip_png("G1"))).await;
+    let people = [
+        ("A", "6800000001"),
+        ("B", "6800000002"),
+        ("C", "6800000003"),
+    ];
+    let (status, body) = send(
+        &app,
+        multipart_group(&people, "0812345678", &slip_png("G1")),
+    )
+    .await;
     assert_eq!(status, 400);
     assert_eq!(body["code"], "invalid_input");
 }
@@ -254,7 +281,11 @@ async fn group_of_five_needs_five_free(pool: PgPool) {
     let app = app(pool, cfg);
     let ids: Vec<String> = (1..=5).map(|i| format!("680000000{i}")).collect();
     let people: Vec<(&str, &str)> = ids.iter().map(|s| ("X", s.as_str())).collect();
-    let (status, body) = send(&app, multipart_group(&people, "0812345678", &slip_png("G5"))).await;
+    let (status, body) = send(
+        &app,
+        multipart_group(&people, "0812345678", &slip_png("G5")),
+    )
+    .await;
     assert_eq!(status, 409);
     assert_eq!(body["code"], "sold_out");
 }

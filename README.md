@@ -1,7 +1,7 @@
 # H-Ticket Backend
 
 Backend ระบบขายบัตร pre-sale บ้านผีสิง (Rust + Axum + PostgreSQL)
-ผู้ซื้อกรอกข้อมูล + แนบสลิป → ระบบอ่าน QR บนสลิป → ออกเลขบัตร 001–600 ให้ทันที
+ผู้ซื้อกรอกข้อมูล + แนบสลิป → ระบบอ่าน QR บนสลิป → บันทึกการจองทันที (ไม่มีเลขบัตร: staff ค้นรหัสนักศึกษาที่หน้างาน หยิบบัตรใบถัดไปให้ แล้วติ๊ก "รับบัตรแล้ว") จำกัดรวม `TOTAL_TICKETS` ใบ
 
 เอกสารออกแบบ: `docs/superpowers/specs/2026-11-07-ticket-issuing-design.md`
 
@@ -45,12 +45,13 @@ cargo run --example make_sample_slip -- REF123 /tmp/slip.png
 | Method | Path | |
 |---|---|---|
 | GET | `/api/sales` | `{open, closed_forever, total, sold, remaining}` |
-| POST | `/api/orders` | multipart: `name`, `student_id` (ส่งซ้ำได้ 1, 2 หรือ 5 คู่ = โปรกลุ่ม), `phone` (ของผู้ซื้อ), `slip` → 201 `{ticket_no, ticket_label, name, student_id, picked_up, group_size, tickets: [...]}` (ตัวนอกคือบัตรคนแรก) |
-| GET | `/api/tickets/{student_id}` | บัตรของรหัสนี้ หรือ 404 (ถ้าซื้อเป็นกลุ่มมี `group: [{ticket_label, name}]`) |
+| POST | `/api/orders` | multipart: `name`, `student_id` (ส่งซ้ำได้ 1, 2 หรือ 5 คู่ = โปรกลุ่ม), `phone` (ของผู้ซื้อ), `slip` → 201 `{name, student_id, picked_up, group_size, tickets: [...]}` (ตัวนอกคือคนแรก) |
+| GET | `/api/tickets/{student_id}` | การจองของรหัสนี้ หรือ 404 (ถ้าซื้อเป็นกลุ่มมี `group: [{name, picked_up}]`) |
+| POST | `/api/ghost-shots` | กล้องผีบนหน้าแรกถ่าย 1 ครั้ง → 204 (ไม่มี body ไม่มีรูป) · เกิน 30 ครั้ง/วินาทีทั้งระบบ → 429 `too_many_attempts` |
 | GET | `/healthz` | health check |
 
 error ของ `POST /api/orders`: `invalid_input` 400, `sales_closed` 403, `invalid_slip` 422,
-`duplicate_slip` 409, `already_has_ticket` 409 (+`ticket_label`, `student_id` ของคนที่มีบัตรแล้ว), `sold_out` 409 (บัตรเหลือไม่พอทั้งกลุ่ม)
+`duplicate_slip` 409, `already_has_ticket` 409 (+`student_id` ของคนที่จองไว้แล้ว), `sold_out` 409 (บัตรเหลือไม่พอทั้งกลุ่ม)
 กลุ่มออกบัตรแบบได้ทั้งหมดหรือไม่ได้เลย สลิปเดียวใช้ได้แค่กลุ่มเดียว ระบบไม่ตรวจยอดเงิน แอดมินดู `group_size` เทียบยอดบนสลิปเอง
 (`invalid_slip`/`duplicate_slip` มี `contact` ให้แสดงช่องทางติดต่อทีมงาน)
 
@@ -58,12 +59,13 @@ error ของ `POST /api/orders`: `invalid_input` 400, `sales_closed` 403, `in
 | Method | Path | |
 |---|---|---|
 | POST | `/api/admin/login` | `{password}` → `{token}` (อายุ 12 ชม.) — ผิดครบ 5 ครั้งใน 1 นาที → 429 `too_many_attempts` ต้องรอ |
-| GET | `/api/admin/stats` | ขายแล้ว/เหลือ/ยกเลิก/รับบัตรแล้ว + `free_numbers` |
-| GET | `/api/admin/orders?q=&status=` | รายชื่อ ค้นด้วยชื่อ/รหัส/เบอร์/เลขบัตร, `status=active\|cancelled` |
+| GET | `/api/admin/stats` | ขายแล้ว/เหลือ/ยกเลิก/รับบัตรแล้ว + `ghost_shots` (จำนวนครั้งที่ถ่ายรูปผี) |
+| GET | `/api/admin/orders?q=&status=` | รายชื่อ ค้นด้วยชื่อ/รหัส/เบอร์, `status=active\|cancelled` |
 | GET | `/api/admin/orders/{id}/slip` | รูปสลิป |
-| POST | `/api/admin/orders/{id}/cancel` | `{reason}` ยกเลิกบัตร เลขกลับมาว่าง |
+| POST | `/api/admin/orders/{id}/cancel` | `{reason}` ยกเลิกการจอง คืนโควตา 1 ใบ |
 | POST | `/api/admin/orders/{id}/pickup` | `{picked_up: true/false}` |
 | PUT | `/api/admin/sales` | `{open: true/false}` |
+| PUT | `/api/admin/total` | `{total}` แก้จำนวนบัตรทั้งหมด (1–999, ไม่น้อยกว่าที่ขายแล้ว ไม่งั้น 409) มีผลทันที → สถิติชุดใหม่ · ถ้ายังไม่เคยตั้งใช้ `TOTAL_TICKETS` |
 | POST | `/api/admin/sales/close-forever` | ปิด pre-sale ถาวร (ย้อนไม่ได้) |
 | GET | `/api/admin/rejected` | ความพยายามซื้อที่ถูกปฏิเสธ (สลิปไม่ผ่าน/ซ้ำ/มีบัตรแล้ว) |
 | GET | `/api/admin/rejected/{id}/slip` | รูปของความพยายามนั้น |

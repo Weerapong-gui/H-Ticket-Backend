@@ -66,10 +66,7 @@ pub fn validate_group(
     for (name, sid) in people {
         let input = validate_order(name, sid, phone)?;
         if out.iter().any(|o| o.student_id == input.student_id) {
-            return Err(bad(&format!(
-                "รหัสนักศึกษา {} ซ้ำกันในกลุ่ม",
-                input.student_id
-            )));
+            return Err(bad(&format!("รหัสนักศึกษา {} ซ้ำกันในกลุ่ม", input.student_id)));
         }
         out.push(input);
     }

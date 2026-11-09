@@ -1,5 +1,5 @@
 use crate::db::{orders, orders::Order, rejected, settings};
-use crate::error::{AppError, ticket_label};
+use crate::error::AppError;
 use crate::storage::SlipStore;
 use crate::validate::{NewOrderInput, detect_image, normalize_student_id, validate_group};
 use crate::{AppState, slip};
@@ -11,11 +11,9 @@ use axum::{
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-/// ข้อมูลบัตรที่เปิดเผยได้ (ไม่มีเบอร์โทร)
+/// ข้อมูลการจองที่เปิดเผยได้ (ไม่มีเบอร์โทร) · ไม่มีเลขบัตร รับบัตรจริงที่หน้างาน
 pub fn ticket_view(o: &Order) -> Value {
     json!({
-        "ticket_no": o.ticket_no,
-        "ticket_label": ticket_label(o.ticket_no),
         "name": o.name,
         "student_id": o.student_id,
         "picked_up": o.picked_up_at.is_some(),
@@ -23,11 +21,11 @@ pub fn ticket_view(o: &Order) -> Value {
     })
 }
 
-/// รายชื่อเพื่อนร่วมกลุ่ม (เลขบัตร + ชื่อ ไม่มีรหัสนักศึกษา/เบอร์)
+/// รายชื่อเพื่อนร่วมกลุ่ม (ชื่อ + สถานะรับบัตร ไม่มีรหัสนักศึกษา/เบอร์)
 fn group_view(group: &[Order]) -> Value {
     group
         .iter()
-        .map(|o| json!({ "ticket_label": ticket_label(o.ticket_no), "name": o.name }))
+        .map(|o| json!({ "name": o.name, "picked_up": o.picked_up_at.is_some() }))
         .collect()
 }
 
@@ -37,10 +35,17 @@ pub async fn sales(State(st): State<AppState>) -> Result<Json<Value>, AppError> 
     Ok(Json(json!({
         "open": s.open,
         "closed_forever": s.closed_forever,
-        "total": st.config.total_tickets,
+        "total": stats.total,
         "sold": stats.sold,
         "remaining": stats.remaining,
     })))
+}
+
+/// กล้องผีบนหน้าแรกถ่ายไป 1 ครั้ง (ไม่มีรูป ไม่มีข้อมูลส่วนตัว)
+pub async fn ghost_shot(State(st): State<AppState>) -> Result<StatusCode, AppError> {
+    st.shot_limiter.check()?;
+    settings::add_ghost_shot(&st.pool).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn ticket(

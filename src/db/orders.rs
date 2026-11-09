@@ -9,7 +9,6 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct Order {
     pub id: Uuid,
-    pub ticket_no: i16,
     pub status: String,
     pub name: String,
     pub student_id: String,
@@ -26,14 +25,14 @@ pub struct Order {
 
 #[derive(Debug, Serialize)]
 pub struct Stats {
+    pub total: i16,
     pub sold: i64,
     pub remaining: i64,
     pub cancelled: i64,
     pub picked_up: i64,
-    pub free_numbers: Vec<i16>,
 }
 
-/// ออกเลขบัตรให้คำสั่งซื้อ 1 คน (group_id = order_id)
+/// บันทึกการจอง 1 คน (group_id = order_id)
 pub async fn issue_ticket(
     pool: &PgPool,
     total: i16,
@@ -54,8 +53,8 @@ pub async fn issue_ticket(
     Ok(orders.remove(0))
 }
 
-/// ออกเลขบัตรให้ทุกคนในกลุ่มพร้อมกัน (ได้ทั้งหมดหรือไม่ได้เลย) ทำทีละคำสั่งด้วย advisory lock
-/// แต่ละคนได้เลขว่างที่น้อยที่สุดตามลำดับที่กรอก แถวแรกใช้ group_id เป็น id
+/// บันทึกการจองของทุกคนในกลุ่มพร้อมกัน (ได้ทั้งหมดหรือไม่ได้เลย) ทำทีละคำสั่งด้วย advisory lock
+/// ไม่มีเลขบัตร: staff หยิบบัตรใบถัดไปให้ที่หน้างาน · แถวแรกใช้ group_id เป็น id
 pub async fn issue_tickets(
     pool: &PgPool,
     total: i16,
@@ -73,21 +72,19 @@ pub async fn issue_tickets(
     if !settings::read_state(&mut tx).await?.open {
         return Err(AppError::SalesClosed);
     }
+    let total = settings::read_total(&mut tx, total).await?;
 
     let student_ids: Vec<&str> = inputs.iter().map(|i| i.student_id.as_str()).collect();
-    let existing: Option<(String, i16)> = sqlx::query_as(
-        "SELECT student_id, ticket_no FROM orders
+    let existing: Option<String> = sqlx::query_scalar(
+        "SELECT student_id FROM orders
          WHERE student_id = ANY($1) AND status = 'active'
          ORDER BY array_position($1, student_id) LIMIT 1",
     )
     .bind(&student_ids)
     .fetch_optional(&mut *tx)
     .await?;
-    if let Some((student_id, ticket_no)) = existing {
-        return Err(AppError::AlreadyHasTicket {
-            ticket_no,
-            student_id,
-        });
+    if let Some(student_id) = existing {
+        return Err(AppError::AlreadyHasTicket { student_id });
     }
 
     let slip_used: bool =
@@ -99,29 +96,23 @@ pub async fn issue_tickets(
         return Err(AppError::DuplicateSlip);
     }
 
-    let free: Vec<i16> = sqlx::query_scalar(
-        "SELECT g::smallint FROM generate_series(1, $1::int) g
-         WHERE NOT EXISTS (SELECT 1 FROM orders WHERE status = 'active' AND ticket_no = g)
-         ORDER BY g LIMIT $2",
-    )
-    .bind(total as i32)
-    .bind(inputs.len() as i64)
-    .fetch_all(&mut *tx)
-    .await?;
-    if free.len() < inputs.len() {
+    let sold: i64 = sqlx::query_scalar("SELECT count(*) FROM orders WHERE status = 'active'")
+        .fetch_one(&mut *tx)
+        .await?;
+    if sold + inputs.len() as i64 > total as i64 {
         return Err(AppError::SoldOut);
     }
 
     let mut orders = Vec::with_capacity(inputs.len());
-    for (i, (input, ticket_no)) in inputs.iter().zip(free).enumerate() {
+    for (i, input) in inputs.iter().enumerate() {
         let id = if i == 0 { group_id } else { Uuid::new_v4() };
         let order: Order = sqlx::query_as(
-            "INSERT INTO orders (id, ticket_no, status, name, student_id, phone, slip_path, slip_ref,
-                                 group_id, group_size)
-             VALUES ($1, $2, 'active', $3, $4, $5, $6, $7, $8, $9) RETURNING *",
+            // clock_timestamp: แถวในกลุ่มเดียวกันเรียงตามลำดับที่กรอก (now() เท่ากันทั้ง transaction)
+            "INSERT INTO orders (id, status, name, student_id, phone, slip_path, slip_ref,
+                                 group_id, group_size, created_at)
+             VALUES ($1, 'active', $2, $3, $4, $5, $6, $7, $8, clock_timestamp()) RETURNING *",
         )
         .bind(id)
-        .bind(ticket_no)
         .bind(&input.name)
         .bind(&input.student_id)
         .bind(&input.phone)
@@ -137,10 +128,10 @@ pub async fn issue_tickets(
     Ok(orders)
 }
 
-/// บัตรที่ยังใช้งานได้ในกลุ่มเดียวกัน เรียงตามเลขบัตร
+/// รายการที่ยังใช้งานได้ในกลุ่มเดียวกัน เรียงตามลำดับที่กรอก
 pub async fn list_group(pool: &PgPool, group_id: Uuid) -> Result<Vec<Order>, AppError> {
     Ok(sqlx::query_as(
-        "SELECT * FROM orders WHERE group_id = $1 AND status = 'active' ORDER BY ticket_no",
+        "SELECT * FROM orders WHERE group_id = $1 AND status = 'active' ORDER BY created_at, id",
     )
     .bind(group_id)
     .fetch_all(pool)
@@ -167,7 +158,7 @@ pub async fn get_order(pool: &PgPool, id: Uuid) -> Result<Order, AppError> {
         .ok_or(AppError::NotFound)
 }
 
-/// ค้นหาด้วยชื่อ/รหัส/เบอร์ (บางส่วน) หรือเลขบัตร (ถ้าเป็นตัวเลข)
+/// ค้นหาด้วยชื่อ/รหัสนักศึกษา/เบอร์ (บางส่วน) เรียงตามเวลาที่จอง
 pub async fn list_orders(
     pool: &PgPool,
     q: Option<&str>,
@@ -177,17 +168,14 @@ pub async fn list_orders(
     let cleaned = q.map(|s| s.replace('\0', ""));
     let q = cleaned.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let pattern = q.map(|s| format!("%{s}%"));
-    let ticket_no: Option<i16> = q.and_then(|s| s.parse().ok());
     Ok(sqlx::query_as(
         "SELECT * FROM orders
          WHERE ($1::text IS NULL OR status = $1)
-           AND ($2::text IS NULL OR name ILIKE $2 OR student_id ILIKE $2 OR phone ILIKE $2
-                OR ticket_no = $3)
-         ORDER BY ticket_no, created_at",
+           AND ($2::text IS NULL OR name ILIKE $2 OR student_id ILIKE $2 OR phone ILIKE $2)
+         ORDER BY created_at, id",
     )
     .bind(status.filter(|s| !s.is_empty()))
     .bind(pattern)
-    .bind(ticket_no)
     .fetch_all(pool)
     .await?)
 }
@@ -228,7 +216,9 @@ pub async fn set_picked_up(pool: &PgPool, id: Uuid, picked_up: bool) -> Result<O
     }
 }
 
-pub async fn stats(pool: &PgPool, total: i16) -> Result<Stats, AppError> {
+/// default_total = TOTAL_TICKETS ใช้เมื่อแอดมินยังไม่เคยตั้งจำนวนบัตร
+pub async fn stats(pool: &PgPool, default_total: i16) -> Result<Stats, AppError> {
+    let total = settings::read_total(&mut *pool.acquire().await?, default_total).await?;
     let (sold, cancelled, picked_up): (i64, i64, i64) = sqlx::query_as(
         "SELECT count(*) FILTER (WHERE status = 'active'),
                 count(*) FILTER (WHERE status = 'cancelled'),
@@ -237,19 +227,11 @@ pub async fn stats(pool: &PgPool, total: i16) -> Result<Stats, AppError> {
     )
     .fetch_one(pool)
     .await?;
-    let free_numbers: Vec<i16> = sqlx::query_scalar(
-        "SELECT g::smallint FROM generate_series(1, $1::int) g
-         WHERE NOT EXISTS (SELECT 1 FROM orders WHERE status = 'active' AND ticket_no = g)
-         ORDER BY g",
-    )
-    .bind(total as i32)
-    .fetch_all(pool)
-    .await?;
     Ok(Stats {
+        total,
         sold,
-        remaining: free_numbers.len() as i64,
+        remaining: (total as i64 - sold).max(0),
         cancelled,
         picked_up,
-        free_numbers,
     })
 }

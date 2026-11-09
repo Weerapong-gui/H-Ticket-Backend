@@ -35,29 +35,32 @@ async fn open(pool: &PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn first_ticket_is_1(pool: PgPool) {
+async fn first_order_is_active(pool: PgPool) {
     open(&pool).await;
     let o = issue(&pool, 600, 1, "R1").await.unwrap();
-    assert_eq!(o.ticket_no, 1);
     assert_eq!(o.status, "active");
+    assert!(o.picked_up_at.is_none());
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn concurrent_50_distinct_numbers(pool: PgPool) {
+async fn concurrent_never_oversells(pool: PgPool) {
     open(&pool).await;
     let mut handles = Vec::new();
     for n in 0..50u32 {
         let pool = pool.clone();
         handles.push(tokio::spawn(async move {
-            issue(&pool, 600, n, &format!("R{n}")).await
+            issue(&pool, 30, n, &format!("R{n}")).await
         }));
     }
-    let mut nums = Vec::new();
+    let (mut ok, mut sold_out) = (0, 0);
     for h in handles {
-        nums.push(h.await.unwrap().unwrap().ticket_no);
+        match h.await.unwrap() {
+            Ok(_) => ok += 1,
+            Err(AppError::SoldOut) => sold_out += 1,
+            Err(e) => panic!("{e}"),
+        }
     }
-    nums.sort();
-    assert_eq!(nums, (1..=50).collect::<Vec<i16>>());
+    assert_eq!((ok, sold_out), (30, 20));
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -68,25 +71,27 @@ async fn same_student_concurrent_one_ticket(pool: PgPool) {
     let ok = results.iter().filter(|r| r.is_ok()).count();
     let dup = results
         .iter()
-        .filter(|r| matches!(r, Err(AppError::AlreadyHasTicket { ticket_no: 1, .. })))
+        .filter(|r| matches!(r, Err(AppError::AlreadyHasTicket { .. })))
         .count();
     assert_eq!((ok, dup), (1, 1));
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn cancelled_number_reused(pool: PgPool) {
+async fn cancel_frees_a_seat(pool: PgPool) {
     open(&pool).await;
-    let mut third = None;
-    for n in 1..=5 {
-        let o = issue(&pool, 600, n, &format!("R{n}")).await.unwrap();
-        if o.ticket_no == 3 {
-            third = Some(o.id);
-        }
+    let mut first = None;
+    for n in 1..=3 {
+        let o = issue(&pool, 3, n, &format!("R{n}")).await.unwrap();
+        first.get_or_insert(o.id);
     }
-    orders::cancel_order(&pool, third.unwrap(), "สลิปปลอม")
+    assert!(matches!(
+        issue(&pool, 3, 4, "R4").await,
+        Err(AppError::SoldOut)
+    ));
+    orders::cancel_order(&pool, first.unwrap(), "สลิปปลอม")
         .await
         .unwrap();
-    assert_eq!(issue(&pool, 600, 6, "R6").await.unwrap().ticket_no, 3);
+    assert!(issue(&pool, 3, 5, "R5").await.is_ok());
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -146,24 +151,19 @@ async fn close_forever_blocks_reopen(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn stats_free_numbers(pool: PgPool) {
+async fn stats_counts(pool: PgPool) {
     open(&pool).await;
-    let mut second = None;
+    let mut ids = Vec::new();
     for n in 1..=3 {
-        let o = issue(&pool, 5, n, &format!("R{n}")).await.unwrap();
-        if o.ticket_no == 2 {
-            second = Some(o.id);
-        }
+        ids.push(issue(&pool, 5, n, &format!("R{n}")).await.unwrap().id);
     }
-    orders::cancel_order(&pool, second.unwrap(), "x")
-        .await
-        .unwrap();
+    orders::cancel_order(&pool, ids[1], "x").await.unwrap();
+    orders::set_picked_up(&pool, ids[0], true).await.unwrap();
     let st = orders::stats(&pool, 5).await.unwrap();
     assert_eq!(
         (st.sold, st.remaining, st.cancelled, st.picked_up),
-        (2, 3, 1, 0)
+        (2, 3, 1, 1)
     );
-    assert_eq!(st.free_numbers, vec![2, 4, 5]);
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -197,8 +197,10 @@ async fn list_and_find(pool: PgPool) {
         orders::list_orders(&pool, None, None).await.unwrap().len(),
         3
     );
-    let by_no = orders::list_orders(&pool, Some("2"), None).await.unwrap();
-    assert!(by_no.iter().any(|o| o.ticket_no == 2));
+    let by_sid = orders::list_orders(&pool, Some("6800000002"), None)
+        .await
+        .unwrap();
+    assert_eq!(by_sid.len(), 1);
     let by_name = orders::list_orders(&pool, Some("คนที่ 3"), None)
         .await
         .unwrap();
@@ -207,7 +209,7 @@ async fn list_and_find(pool: PgPool) {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(found.ticket_no, 1);
+    assert_eq!(found.name, "คนที่ 1");
     assert!(
         orders::find_active_by_student(&pool, "6899999999")
             .await
@@ -240,4 +242,13 @@ async fn rejected_roundtrip(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 async fn search_with_nul_does_not_error(pool: PgPool) {
     assert!(orders::list_orders(&pool, Some("a\0b"), None).await.is_ok());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn ghost_shots_count_up(pool: PgPool) {
+    assert_eq!(settings::ghost_shots(&pool).await.unwrap(), 0);
+    for _ in 0..3 {
+        settings::add_ghost_shot(&pool).await.unwrap();
+    }
+    assert_eq!(settings::ghost_shots(&pool).await.unwrap(), 3);
 }
