@@ -26,7 +26,7 @@ pub enum AppError {
     #[error("duplicate slip")]
     DuplicateSlip,
     #[error("already has ticket {ticket_no}")]
-    AlreadyHasTicket { ticket_no: i16 },
+    AlreadyHasTicket { ticket_no: i16, student_id: String },
     #[error("sales closed")]
     SalesClosed,
     #[error("sold out")]
@@ -101,9 +101,13 @@ impl AppError {
             AppError::InvalidInput(m) | AppError::Conflict(m) => m.clone(),
             AppError::InvalidSlip => "ไม่พบสลิปโอนเงินที่ถูกต้องในรูปนี้ หากโอนเงินแล้วกรุณาติดต่อทีมงาน".into(),
             AppError::DuplicateSlip => "สลิปนี้ถูกใช้ไปแล้ว หากคิดว่าเป็นความผิดพลาดกรุณาติดต่อทีมงาน".into(),
-            AppError::AlreadyHasTicket { ticket_no } => {
-                format!("รหัสนักศึกษานี้มีบัตรอยู่แล้ว (เลข {})", ticket_label(*ticket_no))
-            }
+            AppError::AlreadyHasTicket {
+                ticket_no,
+                student_id,
+            } => format!(
+                "รหัสนักศึกษา {student_id} มีบัตรอยู่แล้ว (เลข {})",
+                ticket_label(*ticket_no)
+            ),
             AppError::SalesClosed => "ขณะนี้ปิดการขายบัตรผ่านเว็บ".into(),
             AppError::SoldOut => "บัตรหมดแล้ว".into(),
             AppError::PresaleClosedForever => "ปิด pre-sale ถาวรแล้ว เปิดขายอีกไม่ได้".into(),
@@ -130,8 +134,12 @@ impl IntoResponse for AppError {
             AppError::TooManyAttempts { retry_after_secs } => {
                 body["retry_after_secs"] = json!(retry_after_secs);
             }
-            AppError::AlreadyHasTicket { ticket_no } => {
+            AppError::AlreadyHasTicket {
+                ticket_no,
+                student_id,
+            } => {
                 body["ticket_no"] = json!(ticket_no);
+                body["student_id"] = json!(student_id);
                 body["ticket_label"] = json!(ticket_label(*ticket_no));
             }
             _ => {}

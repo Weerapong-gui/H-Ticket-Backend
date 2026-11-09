@@ -60,8 +60,18 @@ pub fn slip_png(trans_ref: &str) -> Vec<u8> {
 const BOUNDARY: &str = "XBOUNDARYX";
 
 pub fn multipart_order(name: &str, student_id: &str, phone: &str, file: &[u8]) -> Request<Body> {
+    multipart_group(&[(name, student_id)], phone, file)
+}
+
+/// ออเดอร์กลุ่ม: ส่ง name/student_id ซ้ำตามจำนวนคน
+pub fn multipart_group(people: &[(&str, &str)], phone: &str, file: &[u8]) -> Request<Body> {
     let mut body = Vec::new();
-    for (k, v) in [("name", name), ("student_id", student_id), ("phone", phone)] {
+    let mut fields: Vec<(&str, &str)> = people
+        .iter()
+        .flat_map(|(n, s)| [("name", *n), ("student_id", *s)])
+        .collect();
+    fields.push(("phone", phone));
+    for (k, v) in fields {
         body.extend_from_slice(
             format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n")
                 .as_bytes(),

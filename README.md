@@ -45,12 +45,13 @@ cargo run --example make_sample_slip -- REF123 /tmp/slip.png
 | Method | Path | |
 |---|---|---|
 | GET | `/api/sales` | `{open, closed_forever, total, sold, remaining}` |
-| POST | `/api/orders` | multipart: `name`, `student_id`, `phone`, `slip` → 201 `{ticket_no, ticket_label, name, student_id, picked_up}` |
-| GET | `/api/tickets/{student_id}` | บัตรของรหัสนี้ หรือ 404 |
+| POST | `/api/orders` | multipart: `name`, `student_id` (ส่งซ้ำได้ 1, 2 หรือ 5 คู่ = โปรกลุ่ม), `phone` (ของผู้ซื้อ), `slip` → 201 `{ticket_no, ticket_label, name, student_id, picked_up, group_size, tickets: [...]}` (ตัวนอกคือบัตรคนแรก) |
+| GET | `/api/tickets/{student_id}` | บัตรของรหัสนี้ หรือ 404 (ถ้าซื้อเป็นกลุ่มมี `group: [{ticket_label, name}]`) |
 | GET | `/healthz` | health check |
 
 error ของ `POST /api/orders`: `invalid_input` 400, `sales_closed` 403, `invalid_slip` 422,
-`duplicate_slip` 409, `already_has_ticket` 409 (+`ticket_label`), `sold_out` 409
+`duplicate_slip` 409, `already_has_ticket` 409 (+`ticket_label`, `student_id` ของคนที่มีบัตรแล้ว), `sold_out` 409 (บัตรเหลือไม่พอทั้งกลุ่ม)
+กลุ่มออกบัตรแบบได้ทั้งหมดหรือไม่ได้เลย สลิปเดียวใช้ได้แค่กลุ่มเดียว ระบบไม่ตรวจยอดเงิน แอดมินดู `group_size` เทียบยอดบนสลิปเอง
 (`invalid_slip`/`duplicate_slip` มี `contact` ให้แสดงช่องทางติดต่อทีมงาน)
 
 ### แอดมิน (header `Authorization: Bearer <token>`)

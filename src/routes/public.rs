@@ -1,7 +1,7 @@
 use crate::db::{orders, orders::Order, rejected, settings};
 use crate::error::{AppError, ticket_label};
 use crate::storage::SlipStore;
-use crate::validate::{NewOrderInput, detect_image, normalize_student_id, validate_order};
+use crate::validate::{NewOrderInput, detect_image, normalize_student_id, validate_group};
 use crate::{AppState, slip};
 use axum::{
     Json,
@@ -19,7 +19,16 @@ pub fn ticket_view(o: &Order) -> Value {
         "name": o.name,
         "student_id": o.student_id,
         "picked_up": o.picked_up_at.is_some(),
+        "group_size": o.group_size,
     })
+}
+
+/// รายชื่อเพื่อนร่วมกลุ่ม (เลขบัตร + ชื่อ ไม่มีรหัสนักศึกษา/เบอร์)
+fn group_view(group: &[Order]) -> Value {
+    group
+        .iter()
+        .map(|o| json!({ "ticket_label": ticket_label(o.ticket_no), "name": o.name }))
+        .collect()
 }
 
 pub async fn sales(State(st): State<AppState>) -> Result<Json<Value>, AppError> {
@@ -43,7 +52,11 @@ pub async fn ticket(
     let order = orders::find_active_by_student(&st.pool, &sid)
         .await?
         .ok_or(AppError::NotFound)?;
-    Ok(Json(ticket_view(&order)))
+    let mut view = ticket_view(&order);
+    if order.group_size > 1 {
+        view["group"] = group_view(&orders::list_group(&st.pool, order.group_id).await?);
+    }
+    Ok(Json(view))
 }
 
 fn multipart_err(e: axum::extract::multipart::MultipartError) -> AppError {
@@ -54,46 +67,55 @@ fn multipart_err(e: axum::extract::multipart::MultipartError) -> AppError {
     }
 }
 
+/// ฟิลด์ name/student_id ส่งซ้ำได้ตามจำนวนคน (เรียงคู่กัน) ส่วน phone เป็นของผู้ซื้อคนเดียว
 struct Form {
-    name: String,
-    student_id: String,
+    names: Vec<String>,
+    student_ids: Vec<String>,
     phone: String,
     slip: Vec<u8>,
 }
 
 async fn read_form(mut mp: Multipart) -> Result<Form, AppError> {
-    let (mut name, mut sid, mut phone, mut slip) = (None, None, None, None);
+    let (mut names, mut sids, mut phone, mut slip) = (Vec::new(), Vec::new(), None, None);
     while let Some(field) = mp.next_field().await.map_err(multipart_err)? {
         match field.name().unwrap_or_default() {
-            "name" => name = Some(field.text().await.map_err(multipart_err)?),
-            "student_id" => sid = Some(field.text().await.map_err(multipart_err)?),
+            "name" => names.push(field.text().await.map_err(multipart_err)?),
+            "student_id" => sids.push(field.text().await.map_err(multipart_err)?),
             "phone" => phone = Some(field.text().await.map_err(multipart_err)?),
             "slip" => slip = Some(field.bytes().await.map_err(multipart_err)?.to_vec()),
             _ => {}
         }
+        if names.len() > 5 || sids.len() > 5 {
+            return Err(AppError::InvalidInput("จำนวนคนต้องเป็น 1, 2 หรือ 5 คน".into()));
+        }
     }
     let missing = || AppError::InvalidInput("กรุณากรอกข้อมูลและแนบสลิปให้ครบ".into());
+    if names.is_empty() || names.len() != sids.len() {
+        return Err(missing());
+    }
     Ok(Form {
-        name: name.ok_or_else(missing)?,
-        student_id: sid.ok_or_else(missing)?,
+        names,
+        student_ids: sids,
         phone: phone.ok_or_else(missing)?,
         slip: slip.ok_or_else(missing)?,
     })
 }
 
+/// กลุ่มหลายคนบันทึกเป็นแถวเดียว ชื่อและรหัสคั่นด้วย ", "
 async fn log_rejected(
     st: &AppState,
     reason: &str,
-    input: &NewOrderInput,
+    inputs: &[NewOrderInput],
     slip_path: Option<&str>,
     slip_ref: Option<&str>,
 ) {
+    let join = |f: fn(&NewOrderInput) -> &str| inputs.iter().map(f).collect::<Vec<_>>().join(", ");
     if let Err(e) = rejected::insert(
         &st.pool,
         reason,
-        Some(&input.name),
-        Some(&input.student_id),
-        Some(&input.phone),
+        Some(&join(|i| &i.name)),
+        Some(&join(|i| &i.student_id)),
+        Some(&inputs[0].phone),
         slip_path,
         slip_ref,
     )
@@ -109,7 +131,8 @@ pub async fn create_order(
 ) -> Result<(StatusCode, Json<Value>), AppError> {
     let mp = mp.map_err(|_| AppError::InvalidInput("ต้องส่งข้อมูลแบบ multipart/form-data".into()))?;
     let form = read_form(mp).await?;
-    let input = validate_order(&form.name, &form.student_id, &form.phone)?;
+    let people: Vec<(String, String)> = form.names.into_iter().zip(form.student_ids).collect();
+    let inputs = validate_group(&people, &form.phone)?;
     let kind = detect_image(&form.slip)?;
 
     if !settings::get_sales_state(&st.pool).await?.open {
@@ -139,30 +162,33 @@ pub async fn create_order(
         Ok(r) => r,
         Err(_) => {
             let path = store.save_rejected(&bytes, &file_name).await.ok();
-            log_rejected(&st, "invalid_slip", &input, path.as_deref(), None).await;
+            log_rejected(&st, "invalid_slip", &inputs, path.as_deref(), None).await;
             return Err(AppError::InvalidSlip);
         }
     };
 
     let temp = store.save_temp(&bytes).await?;
     let slip_path = format!("orders/{file_name}");
-    match orders::issue_ticket(
+    match orders::issue_tickets(
         &st.pool,
         st.config.total_tickets,
         order_id,
-        &input,
+        &inputs,
         &slip_ref,
         &slip_path,
     )
     .await
     {
-        Ok(order) => {
+        Ok(orders) => {
             store.finalize(&temp, &file_name).await?;
-            Ok((StatusCode::CREATED, Json(ticket_view(&order))))
+            // ตัวแรกคือบัตรของผู้ซื้อ (คงรูปแบบเดิม) + tickets ครบทุกคน
+            let mut body = ticket_view(&orders[0]);
+            body["tickets"] = orders.iter().map(ticket_view).collect();
+            Ok((StatusCode::CREATED, Json(body)))
         }
         Err(e @ (AppError::DuplicateSlip | AppError::AlreadyHasTicket { .. })) => {
             let path = store.reject_temp(&temp, &file_name).await.ok();
-            log_rejected(&st, e.code(), &input, path.as_deref(), Some(&slip_ref)).await;
+            log_rejected(&st, e.code(), &inputs, path.as_deref(), Some(&slip_ref)).await;
             Err(e)
         }
         Err(e) => {

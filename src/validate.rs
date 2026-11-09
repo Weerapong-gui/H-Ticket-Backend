@@ -1,6 +1,8 @@
 use crate::error::AppError;
 
 pub const MAX_SLIP_BYTES: usize = 5 * 1024 * 1024;
+/// จำนวนคนต่อออเดอร์ที่ขายได้ (โปร 1 คน / 2 คน / 5 คน)
+pub const GROUP_SIZES: [usize; 3] = [1, 2, 5];
 
 #[derive(Debug, Clone)]
 pub struct NewOrderInput {
@@ -49,6 +51,29 @@ pub fn validate_order(
         student_id,
         phone: phone.to_string(),
     })
+}
+
+/// ตรวจข้อมูลทุกคนในกลุ่ม: จำนวนคนต้องตรงกับโปร และรหัสนักศึกษาห้ามซ้ำกันเอง
+/// เบอร์โทรเป็นของผู้ซื้อ ใช้ร่วมกันทั้งกลุ่ม
+pub fn validate_group(
+    people: &[(String, String)],
+    phone: &str,
+) -> Result<Vec<NewOrderInput>, AppError> {
+    if !GROUP_SIZES.contains(&people.len()) {
+        return Err(bad("จำนวนคนต้องเป็น 1, 2 หรือ 5 คน"));
+    }
+    let mut out: Vec<NewOrderInput> = Vec::with_capacity(people.len());
+    for (name, sid) in people {
+        let input = validate_order(name, sid, phone)?;
+        if out.iter().any(|o| o.student_id == input.student_id) {
+            return Err(bad(&format!(
+                "รหัสนักศึกษา {} ซ้ำกันในกลุ่ม",
+                input.student_id
+            )));
+        }
+        out.push(input);
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,6 +161,20 @@ mod tests {
     fn rejects_control_chars_in_name() {
         assert!(validate_order("A\0B", "6831501178", "0812345678").is_err());
         assert!(validate_order("A\nB", "6831501178", "0812345678").is_err());
+    }
+
+    #[test]
+    fn group_sizes_and_duplicates() {
+        let p = |n: &str, id: &str| (n.to_string(), id.to_string());
+        let phone = "0812345678";
+        assert!(validate_group(&[p("A", "6800000001")], phone).is_ok());
+        let two = [p("A", "6800000001"), p("B", "6800000002")];
+        assert_eq!(validate_group(&two, phone).unwrap().len(), 2);
+        assert!(validate_group(&[], phone).is_err());
+        let three: Vec<_> = (1..=3).map(|i| p("A", &format!("680000000{i}"))).collect();
+        assert!(validate_group(&three, phone).is_err());
+        let dup = [p("A", "6800000001"), p("B", " 6800000001")];
+        assert!(validate_group(&dup, phone).is_err());
     }
 
     #[test]

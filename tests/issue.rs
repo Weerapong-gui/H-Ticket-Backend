@@ -68,7 +68,7 @@ async fn same_student_concurrent_one_ticket(pool: PgPool) {
     let ok = results.iter().filter(|r| r.is_ok()).count();
     let dup = results
         .iter()
-        .filter(|r| matches!(r, Err(AppError::AlreadyHasTicket { ticket_no: 1 })))
+        .filter(|r| matches!(r, Err(AppError::AlreadyHasTicket { ticket_no: 1, .. })))
         .count();
     assert_eq!((ok, dup), (1, 1));
 }
