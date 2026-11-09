@@ -186,3 +186,75 @@ async fn sales_endpoint_counts(pool: PgPool) {
         json!({"open": true, "closed_forever": false, "total": 600, "sold": 1, "remaining": 599})
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn group_of_two_shares_one_slip(pool: PgPool) {
+    open_sales(&pool).await;
+    let app = app(pool.clone(), test_config());
+    let people = [("A", "6800000001"), ("B", "6800000002")];
+    let (status, body) = send(&app, multipart_group(&people, "0812345678", &slip_png("G1"))).await;
+    assert_eq!(status, 201, "{body}");
+    assert_eq!(body["ticket_label"], "001");
+    assert_eq!(body["group_size"], 2);
+    let labels: Vec<_> = body["tickets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["ticket_label"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(labels, ["001", "002"]);
+
+    let (status, body) = send(&app, get("/api/tickets/6800000002")).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["ticket_label"], "002");
+    assert_eq!(body["group"].as_array().unwrap().len(), 2);
+    assert!(body["group"][0].get("student_id").is_none());
+
+    // สลิปเดิมใช้กับกลุ่มอื่นไม่ได้
+    let (status, body) = send(
+        &app,
+        multipart_order("C", "6800000003", "0812345678", &slip_png("G1")),
+    )
+    .await;
+    assert_eq!(status, 409);
+    assert_eq!(body["code"], "duplicate_slip");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn group_rejected_whole_if_one_has_ticket(pool: PgPool) {
+    open_sales(&pool).await;
+    let app = app(pool.clone(), test_config());
+    send(&app, multipart_order("B", "6800000002", "0812345678", &slip_png("R1"))).await;
+    let people = [("A", "6800000001"), ("B", "6800000002")];
+    let (status, body) = send(&app, multipart_group(&people, "0812345678", &slip_png("G1"))).await;
+    assert_eq!(status, 409);
+    assert_eq!(body["code"], "already_has_ticket");
+    assert_eq!(body["student_id"], "6800000002");
+    let (status, _) = send(&app, get("/api/tickets/6800000001")).await;
+    assert_eq!(status, 404);
+    let row = &rejected::list(&pool).await.unwrap()[0];
+    assert_eq!(row.student_id.as_deref(), Some("6800000001, 6800000002"));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn group_size_must_be_package(pool: PgPool) {
+    open_sales(&pool).await;
+    let app = app(pool, test_config());
+    let people = [("A", "6800000001"), ("B", "6800000002"), ("C", "6800000003")];
+    let (status, body) = send(&app, multipart_group(&people, "0812345678", &slip_png("G1"))).await;
+    assert_eq!(status, 400);
+    assert_eq!(body["code"], "invalid_input");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn group_of_five_needs_five_free(pool: PgPool) {
+    open_sales(&pool).await;
+    let mut cfg = test_config();
+    cfg.total_tickets = 4;
+    let app = app(pool, cfg);
+    let ids: Vec<String> = (1..=5).map(|i| format!("680000000{i}")).collect();
+    let people: Vec<(&str, &str)> = ids.iter().map(|s| ("X", s.as_str())).collect();
+    let (status, body) = send(&app, multipart_group(&people, "0812345678", &slip_png("G5"))).await;
+    assert_eq!(status, 409);
+    assert_eq!(body["code"], "sold_out");
+}
