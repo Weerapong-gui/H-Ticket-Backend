@@ -96,6 +96,7 @@ async fn admin_routes_require_token(pool: PgPool) {
         ("POST", format!("/api/admin/orders/{id}/pickup")),
         ("PUT", "/api/admin/sales".to_string()),
         ("POST", "/api/admin/sales/close-forever".to_string()),
+        ("PUT", "/api/admin/total".to_string()),
         ("GET", "/api/admin/rejected".to_string()),
         ("GET", format!("/api/admin/rejected/{id}/slip")),
     ];
@@ -424,4 +425,58 @@ async fn successful_login_resets_failures(pool: PgPool) {
         .await;
         assert_eq!(status, 401);
     }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn admin_sets_total_live(pool: PgPool) {
+    open_sales(&pool).await;
+    let app = app(pool, test_config());
+    buy(&app, SID, "R1").await;
+    buy(&app, "6800000002", "R2").await;
+    let token = login(&app).await;
+    let put = |total: Value| {
+        json_req(
+            "PUT",
+            "/api/admin/total",
+            Some(&token),
+            json!({ "total": total }),
+        )
+    };
+
+    // ตั้งน้อยกว่าที่ขายไปแล้วไม่ได้ / นอกช่วง 1-999 ไม่ได้
+    let (status, body) = send(&app, put(json!(1))).await;
+    assert_eq!(
+        (status.as_u16(), body["code"].as_str()),
+        (409, Some("conflict"))
+    );
+    for bad in [json!(0), json!(1000), json!("x")] {
+        let (status, _) = send(&app, put(bad.clone())).await;
+        assert!(status == 400 || status == 422, "{bad} -> {status}");
+    }
+
+    // ตั้งเท่ากับที่ขายแล้วได้ มีผลทันทีทั้งสถิติ หน้าเว็บ และการจอง
+    let (status, stats) = send(&app, put(json!(2))).await;
+    assert_eq!(status, 200, "{stats}");
+    assert_eq!(
+        (stats["total"].clone(), stats["remaining"].clone()),
+        (json!(2), json!(0))
+    );
+    let (_, sales) = send(&app, get("/api/sales")).await;
+    assert_eq!(
+        (sales["total"].clone(), sales["remaining"].clone()),
+        (json!(2), json!(0))
+    );
+    let (status, body) = send(
+        &app,
+        multipart_order("C", "6800000003", "0812345678", &slip_png("R3")),
+    )
+    .await;
+    assert_eq!(
+        (status.as_u16(), body["code"].as_str()),
+        (409, Some("sold_out"))
+    );
+
+    let (_, stats) = send(&app, put(json!(700))).await;
+    assert_eq!(stats["remaining"], 698);
+    buy(&app, "6800000003", "R4").await;
 }

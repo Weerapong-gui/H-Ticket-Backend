@@ -25,6 +25,7 @@ pub struct Order {
 
 #[derive(Debug, Serialize)]
 pub struct Stats {
+    pub total: i16,
     pub sold: i64,
     pub remaining: i64,
     pub cancelled: i64,
@@ -71,6 +72,7 @@ pub async fn issue_tickets(
     if !settings::read_state(&mut tx).await?.open {
         return Err(AppError::SalesClosed);
     }
+    let total = settings::read_total(&mut tx, total).await?;
 
     let student_ids: Vec<&str> = inputs.iter().map(|i| i.student_id.as_str()).collect();
     let existing: Option<String> = sqlx::query_scalar(
@@ -214,7 +216,9 @@ pub async fn set_picked_up(pool: &PgPool, id: Uuid, picked_up: bool) -> Result<O
     }
 }
 
-pub async fn stats(pool: &PgPool, total: i16) -> Result<Stats, AppError> {
+/// default_total = TOTAL_TICKETS ใช้เมื่อแอดมินยังไม่เคยตั้งจำนวนบัตร
+pub async fn stats(pool: &PgPool, default_total: i16) -> Result<Stats, AppError> {
+    let total = settings::read_total(&mut *pool.acquire().await?, default_total).await?;
     let (sold, cancelled, picked_up): (i64, i64, i64) = sqlx::query_as(
         "SELECT count(*) FILTER (WHERE status = 'active'),
                 count(*) FILTER (WHERE status = 'cancelled'),
@@ -224,6 +228,7 @@ pub async fn stats(pool: &PgPool, total: i16) -> Result<Stats, AppError> {
     .fetch_one(pool)
     .await?;
     Ok(Stats {
+        total,
         sold,
         remaining: (total as i64 - sold).max(0),
         cancelled,

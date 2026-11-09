@@ -64,6 +64,7 @@ error ของ `POST /api/orders`: `invalid_input` 400, `sales_closed` 403, `in
 | POST | `/api/admin/orders/{id}/cancel` | `{reason}` ยกเลิกการจอง คืนโควตา 1 ใบ |
 | POST | `/api/admin/orders/{id}/pickup` | `{picked_up: true/false}` |
 | PUT | `/api/admin/sales` | `{open: true/false}` |
+| PUT | `/api/admin/total` | `{total}` แก้จำนวนบัตรทั้งหมด (1–999, ไม่น้อยกว่าที่ขายแล้ว ไม่งั้น 409) มีผลทันที → สถิติชุดใหม่ · ถ้ายังไม่เคยตั้งใช้ `TOTAL_TICKETS` |
 | POST | `/api/admin/sales/close-forever` | ปิด pre-sale ถาวร (ย้อนไม่ได้) |
 | GET | `/api/admin/rejected` | ความพยายามซื้อที่ถูกปฏิเสธ (สลิปไม่ผ่าน/ซ้ำ/มีบัตรแล้ว) |
 | GET | `/api/admin/rejected/{id}/slip` | รูปของความพยายามนั้น |

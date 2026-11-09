@@ -71,7 +71,6 @@ pub async fn stats(_: AdminAuth, State(st): State<AppState>) -> Result<Json<Valu
     let mut v = serde_json::to_value(&s).expect("Stats serializes");
     v["open"] = json!(sales.open);
     v["closed_forever"] = json!(sales.closed_forever);
-    v["total"] = json!(st.config.total_tickets);
     Ok(Json(v))
 }
 
@@ -152,6 +151,21 @@ pub async fn set_sales(
     Ok(Json(
         settings::set_sales_open(&st.pool, body(b)?.open).await?,
     ))
+}
+
+#[derive(Deserialize)]
+pub struct TotalBody {
+    total: i64,
+}
+
+/// แก้จำนวนบัตรทั้งหมด แล้วตอบสถิติชุดใหม่ (หน้าแดชบอร์ดใช้แทนการโหลดซ้ำ)
+pub async fn set_total(
+    _: AdminAuth,
+    State(st): State<AppState>,
+    b: Result<Json<TotalBody>, JsonRejection>,
+) -> Result<Json<Value>, AppError> {
+    settings::set_total(&st.pool, body(b)?.total).await?;
+    stats(AdminAuth, State(st)).await
 }
 
 pub async fn close_forever(

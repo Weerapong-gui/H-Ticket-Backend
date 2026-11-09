@@ -68,6 +68,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/admin/orders/{id}/pickup", post(admin::pickup))
         .route("/api/admin/sales", put(admin::set_sales))
         .route("/api/admin/sales/close-forever", post(admin::close_forever))
+        .route("/api/admin/total", put(admin::set_total))
         .route("/api/admin/rejected", get(admin::list_rejected))
         .route("/api/admin/rejected/{id}/slip", get(admin::rejected_slip))
         .with_state(state)

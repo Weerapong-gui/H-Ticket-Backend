@@ -35,7 +35,7 @@ pub async fn sales(State(st): State<AppState>) -> Result<Json<Value>, AppError> 
     Ok(Json(json!({
         "open": s.open,
         "closed_forever": s.closed_forever,
-        "total": st.config.total_tickets,
+        "total": stats.total,
         "sold": stats.sold,
         "remaining": stats.remaining,
     })))
