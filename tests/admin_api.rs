@@ -144,7 +144,8 @@ async fn cancel_then_lookup_404_and_number_free(pool: PgPool) {
     let (status, _) = send(&app, get(&format!("/api/tickets/{SID}"))).await;
     assert_eq!(status, 404);
     let (_, stats) = send(&app, authed_get("/api/admin/stats", &token)).await;
-    assert_eq!(stats["free_numbers"][0], 1);
+    assert_eq!(stats["remaining"], 600);
+    assert!(stats.get("free_numbers").is_none());
     assert_eq!(stats["cancelled"], 1);
 }
 
@@ -262,7 +263,7 @@ async fn slip_download_matches_upload(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn search_by_ticket_no_and_name(pool: PgPool) {
+async fn search_by_student_id(pool: PgPool) {
     open_sales(&pool).await;
     let app = app(pool, test_config());
     buy(&app, SID, "R1").await;
@@ -271,15 +272,11 @@ async fn search_by_ticket_no_and_name(pool: PgPool) {
     let (_, all) = send(&app, authed_get("/api/admin/orders", &token)).await;
     assert_eq!(all.as_array().unwrap().len(), 2);
     assert_eq!(all[0]["phone"], "0812345678");
-    assert_eq!(all[0]["ticket_label"], "001");
-    let (_, by_no) = send(&app, authed_get("/api/admin/orders?q=2", &token)).await;
-    assert!(
-        by_no
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|o| o["ticket_no"] == 2)
-    );
+    assert!(all[0].get("ticket_no").is_none());
+    assert_eq!(all[0]["student_id"], SID);
+    let (_, by_sid) = send(&app, authed_get("/api/admin/orders?q=6800000002", &token)).await;
+    assert_eq!(by_sid.as_array().unwrap().len(), 1);
+    assert_eq!(by_sid[0]["student_id"], "6800000002");
     let (_, active) = send(
         &app,
         authed_get("/api/admin/orders?status=cancelled", &token),

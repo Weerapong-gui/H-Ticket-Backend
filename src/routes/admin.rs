@@ -1,7 +1,7 @@
 use crate::AppState;
 use crate::auth::{AdminAuth, issue_token, password_matches};
 use crate::db::{orders, orders::Order, rejected, settings, settings::SalesState};
-use crate::error::{AppError, ticket_label};
+use crate::error::AppError;
 use crate::storage::SlipStore;
 use crate::validate::ImageKind;
 use axum::{
@@ -24,9 +24,7 @@ fn parse_id(s: &str) -> Result<Uuid, AppError> {
 }
 
 fn order_json(o: &Order) -> Value {
-    let mut v = serde_json::to_value(o).expect("Order serializes");
-    v["ticket_label"] = json!(ticket_label(o.ticket_no));
-    v
+    serde_json::to_value(o).expect("Order serializes")
 }
 
 async fn slip_response(st: &AppState, rel: &str) -> Result<Response, AppError> {
