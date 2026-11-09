@@ -56,6 +56,35 @@ impl LoginLimiter {
     }
 }
 
+/// ตัวนับรูปผีรับได้ไม่เกินเท่านี้ต่อวินาที (รวมทั้งระบบ) กันคนยิงรัวจนกระทบฐานข้อมูล
+const MAX_SHOTS_PER_SEC: usize = 30;
+
+/// จำกัดอัตรา POST /api/ghost-shots แบบหน้าต่าง 1 วินาที รวมทั้งระบบ
+#[derive(Debug, Default)]
+pub struct ShotLimiter {
+    hits: Mutex<VecDeque<Instant>>,
+}
+
+impl ShotLimiter {
+    pub fn check(&self) -> Result<(), AppError> {
+        let now = Instant::now();
+        let mut q = self.hits.lock().expect("limiter lock");
+        while q
+            .front()
+            .is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(1))
+        {
+            q.pop_front();
+        }
+        if q.len() >= MAX_SHOTS_PER_SEC {
+            return Err(AppError::TooManyAttempts {
+                retry_after_secs: 1,
+            });
+        }
+        q.push_back(now);
+        Ok(())
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct Claims {
     sub: String,

@@ -243,3 +243,12 @@ async fn rejected_roundtrip(pool: PgPool) {
 async fn search_with_nul_does_not_error(pool: PgPool) {
     assert!(orders::list_orders(&pool, Some("a\0b"), None).await.is_ok());
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn ghost_shots_count_up(pool: PgPool) {
+    assert_eq!(settings::ghost_shots(&pool).await.unwrap(), 0);
+    for _ in 0..3 {
+        settings::add_ghost_shot(&pool).await.unwrap();
+    }
+    assert_eq!(settings::ghost_shots(&pool).await.unwrap(), 3);
+}

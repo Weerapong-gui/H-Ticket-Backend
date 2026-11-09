@@ -71,6 +71,7 @@ pub async fn stats(_: AdminAuth, State(st): State<AppState>) -> Result<Json<Valu
     let mut v = serde_json::to_value(&s).expect("Stats serializes");
     v["open"] = json!(sales.open);
     v["closed_forever"] = json!(sales.closed_forever);
+    v["ghost_shots"] = json!(settings::ghost_shots(&st.pool).await?);
     Ok(Json(v))
 }
 

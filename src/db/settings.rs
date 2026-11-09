@@ -73,6 +73,25 @@ pub async fn set_total(pool: &PgPool, total: i64) -> Result<i16, AppError> {
     Ok(total as i16)
 }
 
+/// นับการกดชัตเตอร์กล้องผีบนหน้าแรก +1 (ไม่ใช้ ISSUE_LOCK ไม่แย่งคิวกับการออกบัตร)
+pub async fn add_ghost_shot(pool: &PgPool) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO settings (key, value) VALUES ('ghost_shots', '1')
+         ON CONFLICT (key) DO UPDATE SET value = (settings.value::bigint + 1)::text",
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn ghost_shots(pool: &PgPool) -> Result<i64, AppError> {
+    let v: Option<String> =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'ghost_shots'")
+            .fetch_optional(pool)
+            .await?;
+    Ok(v.and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
 pub async fn get_sales_state(pool: &PgPool) -> Result<SalesState, AppError> {
     let mut conn = pool.acquire().await?;
     read_state(&mut conn).await

@@ -47,6 +47,7 @@ cargo run --example make_sample_slip -- REF123 /tmp/slip.png
 | GET | `/api/sales` | `{open, closed_forever, total, sold, remaining}` |
 | POST | `/api/orders` | multipart: `name`, `student_id` (ส่งซ้ำได้ 1, 2 หรือ 5 คู่ = โปรกลุ่ม), `phone` (ของผู้ซื้อ), `slip` → 201 `{name, student_id, picked_up, group_size, tickets: [...]}` (ตัวนอกคือคนแรก) |
 | GET | `/api/tickets/{student_id}` | การจองของรหัสนี้ หรือ 404 (ถ้าซื้อเป็นกลุ่มมี `group: [{name, picked_up}]`) |
+| POST | `/api/ghost-shots` | กล้องผีบนหน้าแรกถ่าย 1 ครั้ง → 204 (ไม่มี body ไม่มีรูป) · เกิน 30 ครั้ง/วินาทีทั้งระบบ → 429 `too_many_attempts` |
 | GET | `/healthz` | health check |
 
 error ของ `POST /api/orders`: `invalid_input` 400, `sales_closed` 403, `invalid_slip` 422,
@@ -58,7 +59,7 @@ error ของ `POST /api/orders`: `invalid_input` 400, `sales_closed` 403, `in
 | Method | Path | |
 |---|---|---|
 | POST | `/api/admin/login` | `{password}` → `{token}` (อายุ 12 ชม.) — ผิดครบ 5 ครั้งใน 1 นาที → 429 `too_many_attempts` ต้องรอ |
-| GET | `/api/admin/stats` | ขายแล้ว/เหลือ/ยกเลิก/รับบัตรแล้ว |
+| GET | `/api/admin/stats` | ขายแล้ว/เหลือ/ยกเลิก/รับบัตรแล้ว + `ghost_shots` (จำนวนครั้งที่ถ่ายรูปผี) |
 | GET | `/api/admin/orders?q=&status=` | รายชื่อ ค้นด้วยชื่อ/รหัส/เบอร์, `status=active\|cancelled` |
 | GET | `/api/admin/orders/{id}/slip` | รูปสลิป |
 | POST | `/api/admin/orders/{id}/cancel` | `{reason}` ยกเลิกการจอง คืนโควตา 1 ใบ |

@@ -41,6 +41,13 @@ pub async fn sales(State(st): State<AppState>) -> Result<Json<Value>, AppError> 
     })))
 }
 
+/// กล้องผีบนหน้าแรกถ่ายไป 1 ครั้ง (ไม่มีรูป ไม่มีข้อมูลส่วนตัว)
+pub async fn ghost_shot(State(st): State<AppState>) -> Result<StatusCode, AppError> {
+    st.shot_limiter.check()?;
+    settings::add_ghost_shot(&st.pool).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn ticket(
     State(st): State<AppState>,
     Path(student_id): Path<String>,

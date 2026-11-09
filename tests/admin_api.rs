@@ -480,3 +480,38 @@ async fn admin_sets_total_live(pool: PgPool) {
     assert_eq!(stats["remaining"], 698);
     buy(&app, "6800000003", "R4").await;
 }
+
+fn ghost_post() -> Request<Body> {
+    Request::post("/api/ghost-shots")
+        .body(Body::empty())
+        .unwrap()
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn ghost_shot_counter_public_and_in_stats(pool: PgPool) {
+    let app = app(pool, test_config());
+    for _ in 0..2 {
+        let res = app.clone().oneshot(ghost_post()).await.unwrap();
+        assert_eq!(res.status(), 204);
+    }
+    let token = login(&app).await;
+    let (_, stats) = send(&app, authed_get("/api/admin/stats", &token)).await;
+    assert_eq!(stats["ghost_shots"], 2);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn ghost_shot_counter_rate_limited(pool: PgPool) {
+    let app = app(pool, test_config());
+    let mut limited = 0;
+    for _ in 0..40 {
+        let (status, body) = send(&app, ghost_post()).await;
+        if status == 429 {
+            assert_eq!(body["code"], "too_many_attempts");
+            limited += 1;
+        }
+    }
+    assert!(limited > 0);
+    let token = login(&app).await;
+    let (_, stats) = send(&app, authed_get("/api/admin/stats", &token)).await;
+    assert!(stats["ghost_shots"].as_i64().unwrap() <= 30, "{stats}");
+}

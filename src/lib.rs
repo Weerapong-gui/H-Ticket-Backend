@@ -28,6 +28,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub config: Arc<Config>,
     pub login_limiter: Arc<auth::LoginLimiter>,
+    pub shot_limiter: Arc<auth::ShotLimiter>,
 }
 
 impl AppState {
@@ -36,6 +37,7 @@ impl AppState {
             pool,
             config: Arc::new(config),
             login_limiter: Arc::default(),
+            shot_limiter: Arc::default(),
         }
     }
 }
@@ -60,6 +62,7 @@ pub fn build_app(state: AppState) -> Router {
             post(routes::public::create_order).layer(DefaultBodyLimit::max(6 * 1024 * 1024)),
         )
         .route("/api/tickets/{student_id}", get(routes::public::ticket))
+        .route("/api/ghost-shots", post(routes::public::ghost_shot))
         .route("/api/admin/login", post(admin::login))
         .route("/api/admin/stats", get(admin::stats))
         .route("/api/admin/orders", get(admin::list_orders))
